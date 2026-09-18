@@ -6,6 +6,115 @@
 
 ---
 
+## 2026-09-18 — planner(`aegis-2026-b2`) ➜ **新 planner session**：全域交接
+
+**原因**：本 session 過長，使用者指示轉交。
+**對應 commit**：`3ce05e2`（之後可能有其他 session 的新 commit，接手時先 `git pull`）
+
+### 你的角色
+
+planner = **規劃、統整進度、跨題協調、修正錯誤前提**。**不直接下場解題。**
+各分類已 fan out 給專門 session（見 CLAUDE.md 的分工表），你負責：
+- 維護 `status.md`（總表 + 各題狀態）、`requirement.md`（給使用者的請求）、`handover.md`
+- 收各 session 回報、**獨立複核關鍵結論**、把修正寫回文件
+- 協調資源衝突（IDA MCP 一次只能開一個檔案、pc_agent 只有 planner 連得到）
+- 分派新題目
+
+### 🔴 立即要處理的事（按優先序）
+
+**1. WSL 的授權問題 —— 唯一擋住 Pwn 進度的事**
+
+我發現**這台機器有 WSL / Ubuntu 24.04，且題目 binary 跑得起來**：
+```
+$ ./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state
+adb>
+```
+這能解掉 arbitragedb 卡了整場的動態驗證瓶頸。
+
+**但使用者還沒同意在本機跑這個 CTF binary。** 我問過一次（列了三個選項：
+我跑 / 給 pwn_agent 跑 / 維持純靜態），使用者當時回覆的是別的事，**這題仍未決**。
+我**沒有**在未獲同意下跑它。`pwn_agent` 也承諾在使用者明確同意前不碰 WSL。
+
+→ **請重新問使用者**。我的建議是**交給 `pwn_agent`**：它對這個 binary 最熟
+（UAF、FSOP、SROP chain、setcontext 用 rdx、sub_4566 截斷都是它挖的），
+planner 留在協調位置。
+
+**2. CyCraft 兩題新題目未分派**
+
+`loop_check` 抓到平台新增 **extraction-2 / injection-2**（commit `7e2494f`）。
+`cycraft_agent` 剛解掉 extraction-1/injection-1，對那個平台最熟
+（知道 token 機制、quota 用完不補、judge 怎麼判、零成本驗 token 的方法），
+**等使用者解除暫停後，這兩題給它最合適。**
+
+**3. 三個 session 目前處於「暫停」狀態**
+
+使用者說「請繼續解 pwn，其他先暫停」，所以我停了 `misc` / `crypto` / `cycraft_agent`。
+三者都已 push 並回報。**要恢復時記得通知它們**，否則它們會一直等。
+
+### 各題狀態速查（詳見 status.md）
+
+**已解 5/12 = 500 分**：baby / extraction-1 / injection-1 / Jurassic / Travel_1
+
+| 未解題 | 分數 | 負責 | 狀態 |
+|---|---|---|---|
+| Slime | 975 | `rev` | 進行中，已打通遠端 PoW、找到 hidden shop |
+| AI_Challenge | 936 | `rev` | 未開始 |
+| False_Continuity | 804 | `misc`（暫停） | **有重大突破**，見下 |
+| arbitragedb | 711 | `pwn_agent` | 靜態做到底，卡動態驗證 |
+| aegis_asterism | 600 | `rev` | 未開始 |
+| Travel_2 | 100 | `cycraft_agent`（暫停） | 無實質進展 |
+| nursery_melody | 100 | `crypto`（暫停） | 音符抽出，編碼未解 |
+
+**False_Continuity 的最新框架（很重要，別用舊的）**：
+`misc` 發現紙屑上的「亂碼」其實是**一份 base64 文件被撕成 96 張**
+（`d65d678f` 第 2 行實際印 `dmVsb3BlIH...` = "velope"）。
+→ 先前「灰字才是 payload」「48 個差異字元」那整條線是**誤導方向**
+→ 排序有解法了：base64 是連續字元流，用**字元級 overlap 接龍**即可
+→ 關鍵路徑變成**提升 OCR 準確率**（base64 對單字元錯誤零容忍），
+  把 template 限制在 `A-Za-z0-9+/=` 可大幅減少 V/m、5/s、I/l/1、O/0 的混淆
+
+### ⚠️ 給接手者最重要的一課：**我的交接結論被推翻了 11 條**
+
+完整清單在 `status.md` 的「已被推翻的 planner 交接結論」表。摘要：
+
+| 題目 | 我說錯的 | 誰推翻 |
+|---|---|---|
+| Slime | 「改金幣是死路」（看錯欄位）、「4096 次差 2 次可蓋 return」（結構性碰不到） | `rev` |
+| FC | 「72 組重複對」、「配不出對的是碎片太小」（方向相反）、「浮水印/撕裂邊緣有線索」（明暗極性搞反）、「OCR 95% 夠用」（實際 96%，且 46% 方向顛倒——**這是我 pipeline 的 bug**） | `misc` / `crypto` |
+| nursery_melody | 「58 個音符」（實際 59）、「休止是換氣」（是結構性的） | `crypto` |
+| arbitragedb | 「sub_4566 只是 wrapper」（有 `and 0x7f` 截斷路徑） | `pwn_agent` |
+| Travel_1 | 「右上有雲霄飛車軌道」（是路燈桿） | `cycraft_agent` |
+
+**成因歸納（請避免重蹈）**：
+1. **用錯量測工具**：驗證「兩張圖是否相同」我用 OCR 比對，看不出 I/T 差異
+   → 這類比較**一律用像素相減**
+2. **斷言超出檢查範圍**：`sub_4566` 我只讀了開頭 20 行就說「我看過了」
+   → **沒讀完就不要說看過**
+3. **單一實作自我驗證**：180° bug 靠我自己的啟發式驗不出來，
+   是 `misc` 和 `crypto` **各自換一套實作重跑**才浮出來
+   → 關鍵結論要換方法複核。`crypto` 留了 `tools/xcheck_*.py` 三支交叉驗證腳本就是為此
+
+**做法建議**：交接時**明確標註哪些是驗證過的、哪些是推測**。
+我在 Slime 那份標了「這點我沒驗證到，請你實際確認」，`rev` 真的去驗了並推翻它 —— 那次標註是有用的。
+
+### 環境與工具
+
+- **IDA Pro MCP**：`localhost:13337`，目前載入 **Slime**（歸 `rev` 用）。
+  一次只能開一個檔案，要換檔要跟 `rev` 協調。首次呼叫可能 1s timeout，重試即可。
+- **pc_agent**：Linux 環境，**只有 planner 連得到**（Remote Control peer，
+  其他 session `ListAgents` 看不到它，實測 `pwn_agent` 送不到）。
+  → 所有給 pc_agent 的任務**一律經由 planner 轉送**。委派前先 push。
+  它先前被擋的是 `pip install`（純環境限制），使用者已交代它「需要工具先問」。
+- **WSL Ubuntu 24.04**：可用但**未獲授權**（見上）。
+- 本機 Windows，Python 3.14 已裝 scipy/numpy/librosa/soundfile/Pillow。
+
+### 未竟事項
+
+- Travel_1 的隊友答案對照（我方推的是 `AEGIS{3R9C+2R}`）—— 現在價值不高，Jurassic 已入袋，不必特地追
+- `pc_agent` 的 Q2（溢出 crash）我**沒有獨立驗證**，只確認它與靜態語義自洽
+
+---
+
 ## 2026-09-18 — pwn_agent ➜ 新 planner：Pwn/arbitragedb（711）完整現況
 
 **寫給接手的 planner session。** pwn_agent 這個 session 仍在運作，繼續做 arbitragedb。
