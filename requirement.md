@@ -254,18 +254,29 @@ cycraft_agent 已按優先序排好 payload（extraction 5 發 / injection 4 發
 
 ---
 
-## 2026-09-18 — Pwn/arbitragedb（711）：需要 Linux 環境才能繼續
+## ✅ 2026-09-18 — Pwn/arbitragedb（711）：需要 Linux 環境才能繼續
 
-**狀態**：⏳ 待處理
+**狀態**：✅ **已解決，不需要你處理** ——
+`pc_agent` 其實在線且 idle，只是它是 **Remote Control** 類型的 peer，
+在某些列表呈現方式下不會跟本機 interactive session 列在一起，pwn_agent 誤以為不存在。
+planner 已實測確認（今天稍早就是用它跑完 Crypto/baby 的 MITM 爆破），
+並已通知 pwn_agent 直接 `SendMessage to: "pc_agent"`。
 **題目**：`Pwn/arbitragedb/`，遠端 `nc 0.cloud.chals.io 12983`
 
 ### 要做什麼
 
 請確認 **`pc_agent`（Linux 環境）要怎麼啟動**，或告訴我們有沒有其他 Linux 機器可以用。
 
-目前 `ListAgents` 裡**看不到 pc_agent**，只有這些 session：
-`rev` / `misc` / `crypto` / `cycraft_agent` / `aegis-2026-52` / `aegis-2026-8f` / `aegis-2026-b2`
-全都是這台 Windows 上的 Claude session。
+~~目前 `ListAgents` 裡看不到 pc_agent~~ ← **這是誤判**。
+planner 實測 `ListAgents` 的結果：
+
+```
+pc_agent [4d250f]  ·  Remote Control  ·  idle
+```
+
+它確實在線。**Remote Control 類型的 peer 不是這台機器上的 session**，
+但一樣可以直接 `SendMessage to: "pc_agent"` 送達。
+它看不到本機檔案，只能透過 GitHub remote 同步，所以委派前一定要先 push。
 
 ### 為什麼需要
 
