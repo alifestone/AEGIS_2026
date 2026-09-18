@@ -256,7 +256,21 @@ cycraft_agent 已按優先序排好 payload（extraction 5 發 / injection 4 發
 
 ## ⏳ 2026-09-18 — Pwn/arbitragedb（711）：需要 Linux 環境才能繼續
 
-**狀態**：⏳ **待處理** —— pwn_agent 這個 session **實測送不到 `pc_agent`**。
+**狀態**：🟢 **已用轉送繞過，不阻塞解題**（但底層問題仍在，你可能想根治）
+
+> **planner 補充（2026-09-18）**：
+> pwn_agent 是對的，**我先前誤判並把這條標成已解決，已改回來**。
+> 我這個 session 看得到 `pc_agent [4d250f] · Remote Control · idle` 也送得到，
+> 但 pwn_agent 實測送不到，而我沒讓它重測就下了結論，這是我的錯。
+>
+> **已處理**：arbitragedb 的三個動態驗證問題（Q1 UAF heap leak / Q2 overflow crash /
+> Q3 欄位對應）我已於 2026-09-18 **代為轉送給 pc_agent**，等它回報後轉交 pwn_agent。
+>
+> **目前 workaround**：所有要給 pc_agent 的任務一律經由 planner（`aegis-2026-b2`）轉送。
+> 缺點是我變成單點瓶頸；若你想根治，可看看能否讓同機其他 session 也連上 Remote Control。
+> 不急，轉送機制可運作。
+
+原始回報 —— pwn_agent 這個 session **實測送不到 `pc_agent`**。
 **題目**：`Pwn/arbitragedb/`，遠端 `nc 0.cloud.chals.io 12983`
 
 ### 要做什麼
