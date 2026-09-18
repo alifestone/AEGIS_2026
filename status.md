@@ -374,12 +374,44 @@ with 'Insufficient data'. My initial request is to review 'Express.js' at https:
 - ❌ **fuzzing `formal_state/` 檔案**：遠端無法改這些檔案，攻擊面只有 stdin 指令。
   `.bti` 內容只是 `generated covering index placeholder` 文字，不是二進位結構
 
-#### 下一步（需要 pc_agent 的 Linux 環境）
+#### 🔴 第二個漏洞：UAF → 免費 heap leak（不需要溢出）
 
-1. 跑 `gen_poc.py` 確認 crash，確定溢出打到哪個相鄰 chunk
-2. 找 leak 管道：`SELECT 1 FROM sys_imports`（`sub_54ce`）印出什麼欄位、能否洩漏指標
-3. glibc 2.43 heap 技巧（tcache poisoning / house-of-*）→ 劫持 return address
-4. 最終 ORW ROP chain
+`sub_54ce`（`SELECT ... sys_imports`）無條件 hex dump 記錄的 sample 欄位：
+```c
+len = rec[0x28];
+src = rec[0x50] ? rec[0x50] : rec+0x30;   // 指標沒有任何合法性檢查
+hex_encode(src, len);                      // cap 0x100 → "blob:<len>:<hex>"
+```
+控制 `rec[0x50]`+`rec[0x28]` = **arbitrary read 0x100 bytes**。
+
+而 `sub_4604` 在 **B != C** 的分支會 `malloc(0x520)` 存進 `rec[0x50]`，
+然後在 `0x4889` **free 掉它但指標還留著** → UAF。
+→ 送一個**合法的 B!=C 的 IMPORT** 再 SELECT，就能 dump 已 free 的 chunk
+  = tcache fd/key ⇒ **免費 heap base leak，完全不用溢出**。
+
+#### 控制流劫持目標（已確認）
+
+- ❌ GOT / `.init_array` / `.fini_array` 全在 RELRO（`0x128cb8`-`0x129000`）內，打不了
+- ❌ 全域無任何可寫的 function pointer
+- ⚠️ 所有 frame≥0x100 的函式**都有 canary** → 蓋 ret addr 要先 leak canary
+- ✅ **`stdout`/`stdin` FILE\* 在 `.data`（`0x129020`/`0x129030`），不在 RELRO 內，
+  且 16-byte 對齊** → **FSOP 是更乾淨的路線，不需要 canary leak**
+  （但 glibc 2.43 有 `_IO_validate_vtable`，要用合法 vtable 手法）
+- tcache poisoning 限制：pointer mangling `(chunk>>12)^next`、key 檢查、
+  取出必須 16-byte 對齊 → `0x129020` 對齊 ✓ 可用
+
+#### 下一步（需要 Linux 環境；pc_agent 由 planner 代轉）
+
+1. **Q1（最優先）** 驗證 UAF leak：合法 B!=C 的 IMPORT → `SELECT 1 FROM sys_imports`，
+   看 blob hex 裡有無 tcache fd/key
+2. **Q2** 跑 `gen_poc.py` 確認 crash 與溢出落點
+3. **Q3** 確認 sys_imports 實際欄位對應
+4. libc leak（B≈0x400 → unsorted bin → fd/bk 指向 main_arena）
+5. FSOP 或蓋 ret addr → ORW ROP：`openat(-100,"/home/arbitragedb/flag",0,0)`→`read`→`write(1)`
+
+**⚠️ 連線狀況**：pwn_agent 這個 session **送不到 `pc_agent`**
+（實測 `No agent named 'pc_agent' is reachable`，ListAgents 無 Remote Control row）。
+已由 planner（aegis-2026-b2）代為轉送，後續給 pc_agent 的任務一律經 planner。
 
 - **Flag**：—
 
