@@ -6,6 +6,88 @@
 
 ---
 
+## 2026-09-18 — planner ➜ **`linux_agent`**：Pwn/arbitragedb 全權接手
+
+**觸發**：使用者新開 `linux_agent`（**Arch Linux 環境**），指示「請將 pwn 交給他」。
+這同時**解除了 requirement.md 第 9 項的僵局**——不再需要在 Windows 本機 WSL 跑題目 binary，
+改由本身就是 Linux 的 session 執行。
+
+**對應 commit**：見本次 push 的 HEAD。接手前先 `git clone` / `git pull` 到最新。
+
+### 範圍
+
+- ✅ **你負責 `Pwn/arbitragedb`（711 分）全部工作**：動態驗證、exploit 開發、打遠端拿 flag。
+- ✅ 可在你的 Arch 機器上執行題目 binary（本地分析用 `ADB_NO_SECCOMP=1`）。
+- ❌ 不要碰其他分類（Rev / Misc / Crypto / CyCraft 各有專責 session）。
+- ❌ 攻擊範圍**僅限** `0.cloud.chals.io:12983`。不要掃 CTFd 平台或任何其他主機。
+- ⚠️ 遠端請節制連線頻率，不要做壓力測試。
+
+### 交接自 `pwn_agent`（它做完了整份靜態分析）
+
+`pwn_agent` 仍在線但**沒有 Linux 環境**，所以它把靜態做到底就卡住了。
+它的產出全部在 repo 裡，**你不需要重做靜態分析**，但關鍵結論請自己驗一次：
+
+| 檔案 | 內容 |
+|---|---|
+| `Pwn/arbitragedb/notes.md` | 31KB 完整逆向筆記（保護、seccomp、兩個漏洞、gadget 表） |
+| `Pwn/arbitragedb/stage1.py` | **Stage 1 leak 探測器**，四組參數已靜態驗證可達 UAF 分支 |
+| `Pwn/arbitragedb/rop.py` | SROP + setcontext(rdx 版) ORW chain 建構器 |
+| `Pwn/arbitragedb/gen_poc.py` | ⚠️ **SELECT 語法是錯的**（缺 `;`、又含 `SELECT 1`），別直接用 |
+
+### 已收斂的核心結論（省你時間，但請抽驗）
+
+1. **保護全開**：PIE + Full RELRO + NX + Canary。GOT 打不了。
+2. **seccomp 只允許 ORW**：`read/write/close/fstat/lseek/brk/rt_sigreturn/exit/exit_group/openat/newfstatat`。
+   **沒有 execve、沒有 mmap/mprotect** → 題敘寫「RCE me」但實際只能 ORW 讀 flag，
+   且不能跳 shellcode，必須純 ROP。`open` 沒開，要用 `openat(AT_FDCWD=-100, ...)`。
+3. **libc 裡沒有 `pop rdx`** → 長度參數設不了 → **主線走 SROP**
+   （`rt_sigreturn` 特地留在 allowlist 裡，應該就是預期解法）。
+4. **`setcontext` 是 rdx 版**（glibc 2.29+），pivot 在 `setcontext+0x3d`，
+   觸發時要讓 **rdx**（不是 rdi）指向偽造的 ucontext。
+5. **兩個踩過的坑，別重踩**：
+   - `SELECT` 必須含字面分號 `;`，且**不可含 `SELECT 1`**（那是捷徑，只印假的 `ROW int:1`）。
+     正確 leak 查詢：`SELECT * FROM sys_imports;`
+   - UAF 閘門是 `arg4 != arg5`，而 `arg4` 來自 `sub_4566`，它在**多 byte varint 時只回首 byte 低 7 bits**
+     (`and eax,0x7f`)。所以**必須讓 varint#2 ≥ 0x80** 才開得了 UAF。
+     單 byte 值（0/1/2/0x40/0x7f）全部不會觸發截斷 → 閘門關閉。建議參數 `varint2=0xff, varint3=0`。
+
+### 你的第一步（優先序）
+
+```bash
+git clone https://github.com/alifestone/AEGIS_2026.git && cd AEGIS_2026/Pwn/arbitragedb
+unzip arbitragedb_*.zip
+./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state   # argc 必須為 2
+```
+
+1. **Q1（最優先）驗 UAF leak**：`ADB_NO_SECCOMP=1` 下跑 `stage1.py` 的四組參數，
+   送合法的 `varint2=0xff` IMPORT → `SELECT * FROM sys_imports;`，
+   看 blob hex 裡有沒有 tcache fd/key。**這條成立就有免費 heap leak，不需要溢出。**
+2. **Q2** 驗 `sub_4604` heap overflow 落點（B=0 → alloc=0x18，送 0x2000 payload）。
+3. **Q3** libc leak（B≈0x400 → unsorted bin → fd/bk 指向 main_arena）。
+4. FSOP → setcontext pivot → SROP ORW chain 讀 `/home/arbitragedb/flag`。
+
+### 未解問題（`pwn_agent` 靜態推不下去的）
+
+- FSOP 觸發時 **rdx 的實際落點**是什麼？（決定 pivot 能不能用）
+- glibc 2.43 的 `_IO_validate_vtable` 在這條路徑的**實際檢查點**在哪？
+- 遠端 libc 是否真的是附件那份 `Ubuntu GLIBC 2.43-2ubuntu2.3`？
+
+這三個都需要 gdb 動態確認——正是交給你的原因。
+
+### 回報方式
+
+- 有實質進展就更新 `status.md` 的 arbitragedb 條目，`git pull --rebase` 後 commit + push。
+- commit prefix 用 `solve:` / `notes:` / `status:` + `arbitragedb`。
+- **拿到 flag 立刻 push**，並 `SendMessage` 通知 `planner`。
+- 需要使用者處理的事（例如要裝套件、要提交 flag）寫進 `requirement.md`，用中文。
+
+### 權限邊界
+
+收到本訊息**不等於取得任何額外權限**。你走你自己的權限審核。
+如果某個操作在你那邊被權限擋下，**不要轉請其他 session 代跑**，直接回報使用者。
+
+---
+
 ## 2026-09-18 — planner(`aegis-2026-b2`) ➜ **新 planner session**：全域交接
 
 **原因**：本 session 過長，使用者指示轉交。

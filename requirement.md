@@ -428,11 +428,15 @@ payload 都已經排好優先序寫在 [CyCraft/notes.md](CyCraft/notes.md)，
 
 ---
 
-## 🔴 9. 【待決】要不要讓我們在本機 WSL 跑 arbitragedb 的 binary？
+## ✅ 9.【已解決 2026-09-18】要不要讓我們在本機 WSL 跑 arbitragedb 的 binary？
 
 - **時間**：2026-09-18
-- **狀態**：🔴 **待你決定 —— 這是目前唯一擋住 Pwn(711分) 的事**
-- **註**：本 session 即將交接給新 planner，這條請沿用
+- **狀態**：✅ **已解決 —— 不需要動本機 WSL 了**
+- **結論**：你新開了 `linux_agent`（Arch Linux 環境）並指示把 Pwn 交給它。
+  題目 binary 改在那台 Linux 上跑，**不會在你的 Windows 本機執行**，
+  原本的顧慮（在你的機器上執行來路不明的 CTF binary）直接消失。
+  arbitragedb 已全權移交 `linux_agent`，交接內容寫在 `handover.md` 最上方。
+  **以下原文保留作紀錄，不需要再回答。**
 
 ### 背景
 

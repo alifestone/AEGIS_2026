@@ -612,7 +612,11 @@ Travel_2 同樣**未提交**。恢復時可從上面「下一步」直接接手�
 ## Pwn
 
 ### arbitragedb
-- **狀態**：進行中（靜態分析完成，**已定位主漏洞**，待 pc_agent 動態驗證）
+- **狀態**：進行中（靜態分析完成，**已定位主漏洞**）
+- **負責 session**：🔴 **2026-09-18 起改由 `linux_agent`（Arch Linux）全權接手**。
+  使用者新開此 session 提供真正的 Linux 環境，**解除了「本機 WSL 是否可跑題目 binary」的僵局**
+  （requirement.md 第 9 項）。`pwn_agent` 的靜態分析成果全數移交，見
+  [handover.md](handover.md) 最上方區塊。`pwn_agent` 不再推進此題。
 - **完整分析**：[Pwn/arbitragedb/notes.md](Pwn/arbitragedb/notes.md)
   PoC 產生器：[Pwn/arbitragedb/gen_poc.py](Pwn/arbitragedb/gen_poc.py)
 
@@ -679,7 +683,7 @@ hex_encode(src, len);                      // cap 0x100 → "blob:<len>:<hex>"
 - tcache poisoning 限制：pointer mangling `(chunk>>12)^next`、key 檢查、
   取出必須 16-byte 對齊 → `0x129020` 對齊 ✓ 可用
 
-#### 下一步（需要 Linux 環境；pc_agent 由 planner 代轉）
+#### 下一步（需要 Linux 環境 → 已交給 `linux_agent` 直接執行）
 
 1. **Q1（最優先）** 驗證 UAF leak：合法 B!=C 的 IMPORT → `SELECT 1 FROM sys_imports`，
    看 blob hex 裡有無 tcache fd/key
