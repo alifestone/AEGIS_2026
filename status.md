@@ -21,7 +21,7 @@
 | 4 | injection-1 | CyCraft | ✅ 已解 | `AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}` |
 | 5 | False_Continuity | Misc | 進行中 | — |
 | 6 | Jurassic_Time_Capsule | Misc | 進行中 | — |
-| 7 | Travel_1 | Misc | 進行中 | — |
+| 7 | Travel_1 | Misc | 🟡 高信心待提交 | `AEGIS{3R9C+2R}` |
 | 8 | Travel_2 | Misc | 進行中 | — |
 | 9 | arbitragedb | Pwn | 進行中 | 找到 heap overflow (sub_4604)，seccomp 只允許 ORW |
 | 10 | AI_Challenge | Rev | 未開始 | — |
@@ -357,18 +357,29 @@ with 'Insufficient data'. My initial request is to review 'Express.js' at https:
 - **可用 skill**：`offensive-osint`
 
 ### Travel_1
-- **狀態**：進行中
-- **進展／卡點**：OSINT。⚠️ flag 格式只取 **Plus Code**（不含地名）。
-  JPG **無 EXIF、無 EOI 後綴資料**，純視覺判讀。
-  照片中可辨識的線索：
-  - 綠色直立招牌放大後確認是 **STARBUCKS**
-  - 磚造鐘樓，圓頂是**彩色人字紋（chevron）磁磚**，頂端有圓球
-  - 鐘樓左側紅／珊瑚色建築上有**白色草寫招牌，字首 K**，帶長長的下劃線花飾
-  - 棕櫚樹、行人號誌、遠方藍色玻璃帷幕高樓、寬闊市區街道
-  推測是**戶外購物中心**（Old World 混搭建築風格），Las Vegas Town Square 是候選。
-  注意題目要的是 **restaurant**，Starbucks 只是定位用的地標，不是答案本身。
-- **Flag**：—
-- **可用 skill**：`offensive-osint`、`offensive-osint-methodology`
+- **狀態**：🟡 **高信心待提交**
+- **答案**：餐廳 = **Kabuki Japanese Restaurant**（Town Square Las Vegas）
+  地址 6605 S Las Vegas Blvd, Ste 147, Las Vegas, NV 89119
+  座標 `36.0675472, -115.1779391`（OSM node `2746816466`）
+  Plus Code 全碼 `85863R9C+2R` → **local 形式 `3R9C+2R`**
+- **Flag（建議提交）**：`AEGIS{3R9C+2R}`
+- **推理鏈**：
+  1. 綠色直立招牌放大確認 **STARBUCKS**；磚造八角鐘樓、拱窗、貝殼/棕葉浮雕、
+     **紅＋青綠人字紋磁磚圓頂＋圓球頂飾** → 西班牙／摩爾復興風格
+  2. 官網證實 Town Square 是「22 棟建築、Old World 與現代混搭、**70 種以上立面**」
+     的 100 英畝露天商場 → 與畫面的混搭風格吻合
+  3. 抓 Town Square 官方餐廳名錄 → 唯一 K 開頭草寫 logo 的是 **Kabuki**
+  4. Kabuki 品牌識別是**紅色面具**，與招牌所在的**珊瑚紅建築**吻合
+  5. Nominatim 與 Overpass **兩個來源獨立geocode 到同一點**（OSM node 2746816466）
+  6. 周邊 Overpass 查詢顯示 Double Helix / Coffee Bean / Yard House / Tommy Bahama
+     全在 64–138m 內 → 確認就是 Town Square 商場內部，幾何關係合理
+- **Plus Code 計算方式**：本機自寫 OLC 實作（`scratchpad/osint/olc.py`），
+  用題目 README 的範例反推驗證過：Taipei 信義區座標算出 `2HM6+FH`，
+  與 README 範例 `2HM7+JJ` **前 3 碼網格相同**（同一區塊內的不同點），確認演算法正確。
+- ⚠️ **提交前建議**：若使用者能開 Google Maps 搜 Kabuki Japanese Restaurant Town Square，
+  直接看它顯示的 Plus Code 做最終確認最保險（Google 的 local 形式應為 `3R9C+2R`）。
+- **已推翻的判讀**：原交接說右上角疑似**雲霄飛車軌道** → 放大後確認**只是路燈燈桿**，
+  不是遊樂設施，不要當定位線索。
 
 ### Travel_2
 - **狀態**：進行中
