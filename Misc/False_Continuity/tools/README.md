@@ -57,3 +57,27 @@ len(faint)   # 764
 灰字墨色深淺（45–98 連續，像渲染雜訊）、背景浮水印（星圖/羅盤在 191–210，是紙張材質）。
 
 詳見 [../notes.md](../notes.md)。
+
+---
+
+## 交叉驗證腳本（crypto session 加入，2026-09-18）
+
+這三支是**獨立於原 pipeline 重寫**的驗證腳本，用來交叉確認關鍵結論。
+放在這裡是因為「用不同實作重跑得到相同結果」比單一實作的自我驗證可信得多。
+
+| 檔案 | 驗證什麼 | 結果 |
+|---|---|---|
+| `xcheck_pair.py` | 48 對 + 48 單張結構 | ✅ 成立。輪廓 PCA + 72 角度 bin signature（允許 180° roll），真對距離 **恰為 0.000**，次佳 ≥0.011，斷層乾淨 |
+| `xcheck_diff.py` | 每對的差異區域數 | ✅ **47 對 = 1 區域，1 對 = 3 區域**。原圖可直接相減（對內無相對旋轉） |
+| `xcheck_orient.py` | 180° 方向判定是否可靠 | 🔴 **44/96 需翻轉（45.8%）**，獨立確認原 pipeline 的方向 bug |
+
+`xcheck_orient.py` 的方法：每張分別在 `deg` 與 `deg+180` 下跑完整 OCR，
+比較平均 template 最佳匹配距離——顛倒的字配不到正確 template，所以匹配距離會明顯較差。
+這比「基線 std vs 頂線 std」的統計啟發式可靠。
+
+執行方式同其他腳本（需先在 scratchpad 解壓 `fc/`）：
+```bash
+python xcheck_pair.py     # -> mydist.pkl
+python xcheck_diff.py     # 需要 mystruct.pkl（由 xcheck_pair 的分組產生）
+python xcheck_orient.py   # -> orient2.pkl
+```
