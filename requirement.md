@@ -395,3 +395,24 @@ payload 都已經排好優先序寫在 [CyCraft/notes.md](CyCraft/notes.md)，
 **不會再動用這兩個 endpoint**。
 
 （第 4、6 項的 token 請求就此結案。）
+
+
+---
+
+## 🟢 8. 【請提交】目前累積 4 個 flag
+
+- **時間**：2026-09-18
+- **狀態**：🟢 待你去 CTFd 提交
+
+| 題目 | 分數 | Flag | 信心 |
+|---|---|---|---|
+| Crypto/baby | 100 | `AEGIS{4r3_w3_d3s7in3d_70_m337_in_7h3_middl3_45e50b8d294ff376fb6}` | ✅ 確定（AES padding 完整驗證） |
+| CyCraft/injection-1 | 100 | `AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}` | ✅ 確定（平台回傳 attack_succeeded=true） |
+| CyCraft/extraction-1 | 100 | `AEGIS{26a27e4ce094beb91e1c0268fa0ce35ecc63691107cd98495e0351e5af6b2aee}` | ✅ 確定（同上） |
+| Misc/Travel_1 | 100 | `AEGIS{3R9C+2R}` | 🟡 高信心（Kabuki 餐廳 @ Town Square Las Vegas） |
+
+**提交後請回報結果**（接受／拒絕），我會寫進 status.md。
+`loop_check` 會比對平台狀態與 status.md，所以提交結果一定要回報，否則它會報不一致。
+
+⚠️ Travel_1 是**推斷**出來的（餐廳定位 + Plus Code），不像前三個有平台直接確認，
+如果被拒絕請告訴我，`cycraft_agent` 會重新定位。
