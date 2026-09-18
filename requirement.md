@@ -251,3 +251,95 @@ cycraft_agent 已按優先序排好 payload（extraction 5 發 / injection 4 發
 拿到 token 就一發一發打、每發都記錄結果。
 
 詳見 [CyCraft/notes.md](CyCraft/notes.md)。
+
+---
+
+## 2026-09-18 — Pwn/arbitragedb（711）：需要 Linux 環境才能繼續
+
+**狀態**：⏳ 待處理
+**題目**：`Pwn/arbitragedb/`，遠端 `nc 0.cloud.chals.io 12983`
+
+### 要做什麼
+
+請確認 **`pc_agent`（Linux 環境）要怎麼啟動**，或告訴我們有沒有其他 Linux 機器可以用。
+
+目前 `ListAgents` 裡**看不到 pc_agent**，只有這些 session：
+`rev` / `misc` / `crypto` / `cycraft_agent` / `aegis-2026-52` / `aegis-2026-8f` / `aegis-2026-b2`
+全都是這台 Windows 上的 Claude session。
+
+### 為什麼需要
+
+arbitragedb 的**靜態分析已經做完，主漏洞也找到了**（詳見
+[Pwn/arbitragedb/notes.md](Pwn/arbitragedb/notes.md)）：
+
+- `sub_4604` 有 heap overflow：malloc 大小被 clamp 到 0x1000，
+  但 memcpy 長度取 `max(remaining, C)`，可溢出約 **0x1fe8 bytes 全可控資料**
+- seccomp 只允許 `read/write/close/fstat/lseek/brk/rt_sigreturn/exit/exit_group/openat/newfstatat`
+  → **沒有 execve / mmap / mprotect**，只能做 ORW ROP chain 讀 flag
+- 保護全開：PIE + Full RELRO + NX + Canary，libc 2.43
+
+但接下來這三件事**一定要能實際執行這個 ELF** 才做得下去，而本機是 Windows：
+
+1. 跑 `Pwn/arbitragedb/gen_poc.py` 產生的 PoC，確認 crash 與溢出落點
+2. 確認 leak 管道（PIE + Full RELRO，沒有 leak 就無法 ROP）
+3. 在 GDB 裡做 glibc 2.43 的 heap 佈局與 ROP chain 調試
+
+本機限制（CLAUDE.md 已載明）：ELF 跑不起來、沒有 pwntools、沒有 gdb 可對 Linux ELF 動態除錯。
+
+### 替代方案（若 pc_agent 短期內叫不起來）
+
+以下任一即可，請擇一告知：
+- 開一台 **WSL**（`wsl --install`，然後在 WSL 裡裝 `python3-pip` + `pwntools` + `gdb`）
+- 開 **Docker**（`docker run -it --rm -v <repo>:/w ubuntu:24.04`）
+- 提供任何一台可 SSH 的 Linux 機器
+
+只要有 Linux + gdb + pwntools，我們就能自己把 exploit 調到底，不需要人工介入解題。
+
+---
+
+## 🔴 6. CyCraft Team Token — 你給的這個不對，需要**另一個**
+
+- **時間**：2026-09-18
+- **題目**：`CyCraft/extraction-1`、`CyCraft/injection-1`
+- **狀態**：🔴 仍然卡住
+
+### 你給的 token
+
+```
+ctfd_124554d18b751240a2a88c2ff5d60096980d14fa9004643fe939d0eb5666c1ec
+```
+
+實測**被拒絕**（帶 `ctfd_` 前綴、去掉前綴都試過，兩種都一樣）：
+
+```
+HTTP 401  {"code":"INVALID_TEAM_TOKEN","error":"invalid or missing team token"}
+```
+
+（放心，**這兩次測試沒有消耗 quota** —— 401 是在 auth 層擋下，沒有進到評分 queue。）
+
+### 為什麼不對
+
+`ctfd_` 開頭的是 **CTFd 平台本身的 API Token**（Settings → Access Tokens 產生的那種），
+用途是呼叫 CTFd 自己的 API。
+
+但這兩題的評分服務是**另一個獨立平台「CyCraft XecArena」**（跑在 `*.chals.io`），
+它要的是它自己發的 **Team Token**，跟 CTFd 的 API token 是兩套不同的東西。
+
+### 想請你做的事
+
+請到**題目本身的頁面**上找，不是 CTFd 的帳號設定頁。具體來說：
+
+1. 打開 CTFd 上 **extraction-1 或 injection-1 的題目視窗**，
+   把**題敘的完整文字**看過一遍（我們 repo 的 README 只抓到那張 jpg，文字部分漏抓了）。
+   Team Token 很可能就直接寫在題敘裡，或是有一個「點此取得 token」的連結。
+2. 如果題敘裡沒有，找找看比賽有沒有發**隊伍專屬的 token**（公告 / Discord 置頂 /
+   報名信 / 隊伍頁面）。
+3. token 長相應該**不是** `ctfd_` 開頭。
+
+**另外仍然想請你確認**：題目頁面有沒有寫「總共可以提交幾次」？
+因為 quota 用完不會補（`quota does not refill`），我需要知道預算才能決定打幾發。
+
+### 目前狀態
+
+payload 都已經排好優先序寫在 [CyCraft/notes.md](CyCraft/notes.md)，
+**拿到正確 token 我可以立刻開打**。在那之前我先去做 Misc 的 OSINT 三題。

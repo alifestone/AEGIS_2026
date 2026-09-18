@@ -150,3 +150,77 @@ memcpy(p, payload, copylen);           // 0x469e  ★ HEAP OVERFLOW
 - 用 `ADB_NO_SECCOMP=1` 先在無 seccomp 下驗證 crash 與 leak，再開 seccomp 驗證 ORW
 - 跑法：`./arbitragedb formal_state`（argv[1] 必須是 state 目錄）
 - 用題目附的 libc/ld：`patchelf --set-interpreter ./ld-linux-x86-64.so.2 --set-rpath . arbitragedb`
+
+---
+
+## 8. ★ Leak 管道：`SELECT ... sys_imports` 是 arbitrary read primitive
+
+### 8.1 import 記錄結構（stride 0x78，BSS @ `0x1ee5d70 + 8`）
+
+從 `sub_4604`（寫入）與 `sub_54ce`（列印）交叉比對得出：
+
+| offset | 內容 | 在 sys_imports 怎麼被印出來 |
+|---|---|---|
+| `+0x00` | batch_id | `int:%ld` |
+| `+0x08` | table_name char[0x18] | `%s`（`sub_1b40` 複製，上限 0x100） |
+| `+0x20` | accepted_rows | `int:%ld` |
+| `+0x28` | **sample 長度** | 傳給 encoder 當 len（encoder 內再 cap 到 0x100） |
+| `+0x30` | inline sample buffer（0x20 bytes） | 當 `+0x50` 為 0 時的 fallback 來源 |
+| `+0x50` | **sample 指標** | **非 0 就當成來源位址讀取** ★ |
+| `+0x58` | aux 指標（0x80 的 chunk） | — |
+| `+0x60`/`+0x68`/`+0x70` | payload ptr / remaining / C | — |
+
+### 8.2 列印邏輯（`sub_54ce` @ `0x5604`~`0x563f`）
+
+```c
+len = rec[0x28];
+src = rec[0x50] ? rec[0x50] : rec + 0x30;     // 0x5613 test/je
+hex_encode(src, len, out, 0x280);             // sub_1c10
+printf("ROW int:%ld %s int:%ld %s", rec[0], table_name, rec[0x20], "blob:<len>:<hex>");
+```
+
+encoder `sub_1c10`：`if (len > 0x100) len = 0x100;`（`0x1c4a`）然後
+`hex(src, len)` → `blob:%zu:%s`。**沒有任何指標合法性檢查。**
+
+### 8.3 這給了什麼
+
+**控制 `rec[0x50]`（來源位址）+ `rec[0x28]`（長度）⇒ 每次可讀任意位址 0x100 bytes
+並以 hex 印出來。** 這正是 PIE + Full RELRO 需要的 leak 原語。
+
+而 `+0x50` / `+0x28` 都落在 heap overflow 可覆寫的範圍內
+（記錄本身在 BSS，但 `+0x50` 存的是**指向 heap 的指標**，見下）。
+
+### 8.4 免費的 heap leak（不用溢出就有）
+
+`sub_4604` 的 `0x47ed` 分支：**當 `B != C` 時**會走
+```c
+q = malloc(0x520);  aux = malloc(0x80);
+memcpy(q, payload, min(copylen, 0x80));
+rec[0x50] = q;        // 0x485e  ← 存入 heap 指標
+rec[0x28] = 0x20;     // 0x486a  ← 長度固定 0x20
+rec[0x58] = aux;
+free(q);              // 0x4889  ★ q 被 free 了，但 rec[0x50] 還指著它 → UAF
+```
+
+⚠️ **注意 `0x4889` 的 `free(q)`：`rec[0x50]` 變成 dangling pointer（UAF）。**
+之後 `SELECT ... sys_imports` 會把這塊已釋放的 chunk 內容 hex 印出來
+→ **tcache/fastbin 的 fd/key 指標會被直接印出來 ⇒ 免費的 heap base leak**
+（glibc 2.43 有 tcache key 與 pointer mangling，印出來的是
+ `mangled_fd = (chunk_addr >> 12) ^ next`，仍可推回 heap base）
+
+這條路**不需要任何溢出**，只要送一個 `B != C` 的合法 IMPORT 再 `SELECT ... sys_imports`。
+**請 pc_agent 優先驗證這點**，這是整條 exploit 最省事的起點。
+
+### 8.5 完整 exploit 草案
+
+1. **heap leak**：IMPORT（`B != C`）→ `SELECT 1 FROM sys_imports` → 讀 freed chunk 的 fd
+   → 解 mangling 得 heap base
+2. **libc leak**：用 heap overflow 覆寫某筆記錄的 `+0x50` / `+0x28`
+   → 指向有 libc 指標的位置（例如 main_arena / stdout FILE 結構 / `__libc_argv`）
+   → 再 `SELECT ... sys_imports` 印出來 → libc base
+   （也可先讓 chunk 進 unsorted bin，其 fd/bk 直接指向 main_arena）
+3. **PIE leak**：同法讀 BSS 裡存的程式指標，或從 stdout FILE 的 vtable 推回
+4. **劫持控制流**：glibc 2.43 tcache poisoning（注意 pointer mangling + tcache key）
+   → 目標是 stack return address（沒有 mprotect 不能放 shellcode，GOT 唯讀）
+5. **ORW ROP**：`openat(-100, "/home/arbitragedb/flag", 0, 0)` → `read` → `write(1,...)`
+   備案：`rt_sigreturn` 有開 → SROP 一次設好所有暫存器
