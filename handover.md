@@ -6,6 +6,64 @@
 
 ---
 
+## 2026-09-18 — pc_agent(Linux) ➜ planner / pwn_agent：arbitragedb 動態驗證結果（Q1/Q2/Q3）
+
+**對應 commit**：`c41fe83`（在此基礎上跑）
+**題目**：`Pwn/arbitragedb/`，本次全部 **local-only**（`ADB_NO_SECCOMP=1`，沒碰遠端 `0.cloud.chals.io`）
+**執行環境**：Linux。無 patchelf，用 `./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state` 跑；
+gdb 有但透過 ld wrapper 對 PIE 無法乾淨 unwind；pip 裝套件被權限擋（此題用不到）。
+
+### ★★ 最關鍵發現：SELECT 語法（notes 與 gen_poc.py 的查詢全都無效）
+
+SELECT handler `0x67f8` 要求該行**同時**滿足：
+1. 以 `SELECT` 開頭（`0x161f` 前綴比對，case-insensitive）
+2. 行內含一個字面 `;`（`0x6846` strchr 找 `0x3b`），否則印 `ERR syntax`
+3. 想觸發 sys_imports 印表器（`0x54ce`）要含子字串 `sys_imports`，且**不要含 `SELECT 1`**
+   （`SELECT 1` 是子字串捷徑 `0x5482`，只印假的 `ROW int:1`，會蓋掉 sys_imports 的列）
+
+**可用的 leak 查詢：`SELECT * FROM sys_imports;`**
+gen_poc.py 的 `SELECT 1 FROM sys_imports\n` 兩點都踩雷（沒 `;`、又含 `SELECT 1`）。
+
+### Q1（UAF tcache-fd leak）：**未重現，不要當成 free 的 leak 原語**
+
+- UAF 分支在 code 裡如 notes §8.4 所述確實存在：`0x47fb malloc(0x520)` / `0x480e malloc(0x80)` /
+  `0x4859 memcpy` / `0x4866 rec[0x50]=q` / `0x486e rec[0x28]=0x20` / `0x4889 free(q)`（dangling）。
+- **但進入該分支的閘門是 `0x47f1: cmp [rbp-0x60],[rbp-0x68]`（相等就 je 跳過）**，
+  這兩個 slot **不是** A/B/C 三個 varint。實測 A,B,C ∈ {0,1,2,0x40,0x7f} 全走 inline 路徑：
+  sys_imports 一律印 inline sample（`rec+0x30`），從未出現 heap 指標。
+- 觀察到的 inline sample = `[C_byte, payload...]`，長度 = `min(B, 0x20)`。
+- ⇒ 要拿到 free 後的 tcache fd，**得先找出 header 裡哪些欄位對到 `[rbp-0x60]`/`[rbp-0x68]`**
+  （很可能在我一直填 0 的 `"ADB1"+12` 這 0x10 header 內）。建議用 IDA 看 `sub_4988` 的 parser。
+  **在找到正確輸入前，不要假設「免費 heap leak」成立。**
+
+### Q2（heap overflow）：**已確認 crash，但 gen_poc.py 參數是錯的**
+
+- gen_poc.py（B=0、payload 0x2000）**不會 crash**，IMPORT 回 OK。
+- 真正 crash：IMPORT 的 alloc-size 欄位（gen_poc 叫 B）**≥ 0x80** →
+  `malloc(): corrupted top size`、SIGABRT（rc=-6）。溢出蓋到 top chunk size，下次 malloc 的 sanity check abort。
+- 分配點 `0x4630`（`min(field+0x18, 0x1000)` clamp）+ 第一個 memcpy `0x469e`。溢出旋鈕是 alloc-size 欄位，不是 payload 長度。
+- 可重現指令見 `scratchpad/arb/`（`crash.bin`：B=0x80）。
+
+### Q3（欄位對應）：**已確認**
+
+```
+SELECT * FROM sys_imports;
+COL 0 batch_id int      -> rec[0x00]，從 700001 起，每次 IMPORT +1
+COL 1 table_name string -> rec[0x08]，IMPORT 名（"tbl"=74626c）
+COL 2 accepted_rows int -> rec[0x20]，此處=1
+COL 3 sample blob       -> hex(rec[0x28] bytes, 來源 rec[0x50]?rec[0x50]:rec+0x30)
+ROW int:700001 str:3:74626c int:1 blob:<len>:<hex>
+```
+§8.3 的 arbitrary-read（控 rec[0x50]+rec[0x28] 讀任意位址）原理成立，但要先靠 overflow 蓋掉某筆記錄的 +0x50/+0x28，是 step 2 不是免費。
+
+### 下一步（給 pwn_agent）
+
+1. 用 IDA 解 `sub_4988` → `sub_4604` 的 header/varint 對應，找出 `[rbp-0x60]`/`[rbp-0x68]` 是哪兩個欄位，湊出進 UAF 分支的輸入。
+2. 有了 leak query（`SELECT * FROM sys_imports;`）後再驗 tcache fd。
+3. overflow 走 alloc-size≥0x80，精修成可控蓋 +0x50/+0x28 得 arbitrary read。
+
+---
+
 ## 2026-09-18 — planner ➜ cycraft session：CyCraft 全部（extraction-1 / injection-1，各 100）
 
 **對應 commit**：`770b76d`
