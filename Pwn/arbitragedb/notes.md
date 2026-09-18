@@ -501,3 +501,91 @@ glibc 2.29 之後 setcontext 改讀 `rdx`。所以 FSOP 觸發時**必須讓 `rd
 
 `stage1.py` 直接產生可餵給程式的 stdin（UAF → SELECT → unsorted → SELECT → QUIT），
 並附 `parse_blob()` / `demangle()` / `recover_heap_base()` 幫忙解析輸出。
+
+---
+
+## 15. 🔴 重大修正：UAF 分支的開關是 `sub_4566` 的**截斷行為**，不是 B/C 相等與否
+
+pc_agent 動態實測「A,B,C ∈ {0,1,2,0x40,0x7f} 全部組合都走 inline 路徑、開不了 UAF」，
+我回頭重讀 caller 與 `sub_4566`，找到原因了。**我前面第 8/14 節把參數對應寫錯了。**
+
+### 15.1 先更正參數對應（第 8/14 節的 B/C 命名是錯的）
+
+`sub_4604(rdi=name, rsi=payload, rdx=remaining, rcx=arg4, r8=arg5)`
+
+在 **caller**（`0x4c68`–`0x4c94`）：
+
+```
+rcx (arg4) = [rbp-0x58]   ← sub_4566(varint#2 起始處) 的回傳值   ★會截斷
+r8  (arg5) = [rbp-0x78]   ← varint#3 的完整值（0x4bfe 的 sub_44bb）
+rdx        = size - off   ← remaining
+```
+
+在 **callee**（`0x461c`/`0x4620`）：`-0x60 = rcx = arg4`、`-0x68 = r8 = arg5`。
+所以 `0x47f1` 的閘門 `cmp [-0x60],[-0x68]` 比的是 **arg4 vs arg5**。
+
+- `arg4` 決定 `alloc = min(arg4+0x18, 0x1000)`、也寫進 `rec[0x28]`（再 clamp 0x20）
+- `arg5` 受 `0x4c43` 的 `<= 0x80` 檢查（**被檢查的是 arg5，不是 arg4**）
+- `copylen = max(remaining, arg5)`
+
+### 15.2 ★ `sub_4566` 的真正語意（關鍵）
+
+```c
+uint64_t sub_4566(const uint8_t *p, size_t len, size_t *adv) {
+    uint64_t val; 
+    if (varint_decode(p, len, adv, &val) != 0) { *adv = 0; return 0; }
+    if (val > 1 && (p[0] & 0x80))      // 0x45ca: val>1   0x45d7: 首 byte 有 continuation bit
+        return p[0] & 0x7f;            // ★ 只回「首 byte 的低 7 bits」
+    return val;                        // 否則回完整值
+}
+```
+
+**只有當 varint#2 是「多 byte 編碼」（首 byte ≥ 0x80）時，回傳值才會被截斷成低 7 bits。**
+而 `off` 前進量用的是 `*adv`（完整 byte 數），與截斷無關。
+
+### 15.3 為什麼 pc_agent 開不了 UAF
+
+他試的 `{0, 1, 2, 0x40, 0x7f}` **全部都是單 byte varint**（< 0x80，首 byte 無 continuation bit）
+→ `sub_4566` 回傳完整值 → `arg4 == varint#2`
+→ 當他讓 varint#2 == varint#3 時 `arg4 == arg5`，UAF 閘門關閉；
+   他直覺上「B != C」時其實也只是在比兩個完整值，沒碰到截斷這個機制。
+
+**→ 要開 UAF，必須讓 varint#2 ≥ 0x80（多 byte），讓截斷發生，
+   使 `arg4 = firstbyte & 0x7f` 與 `arg5` 不相等。**
+
+### 15.4 可用參數（靜態驗證，含全部檢查）
+
+| varint2 | varint3 | paylen | arg4 | arg5 | alloc | overflow | UAF |
+|---|---|---|---|---|---|---|---|
+| **0xff** | 0 | 0x20 | **127** | 0 | 0x97 | −119（不溢出） | ✓ |
+| 0x3fff | 1 | 0x40 | 127 | 1 | 0x97 | −87 | ✓ |
+| 0x81 | 0 | 0x20 | 1 | 0 | 0x19 | +7 | ✓ |
+| 0x80 | 1 | 0x20 | 0 | 1 | 0x18 | +8 | ✓ |
+
+**推薦第一組 `varint2=0xff, varint3=0, payload 0x20`**：UAF 開啟且確定不溢出，
+最乾淨，適合單獨驗證 leak。
+
+### 15.5 ⚠️ 一個結構性限制（影響 libc leak 計畫）
+
+截斷後 `arg4 = firstbyte & 0x7f ≤ 0x7f`
+→ **走 UAF 分支時 `alloc` 最大只有 `0x7f+0x18 = 0x97`**。
+
+而 `alloc > 0x410` 才進 unsorted bin，那需要單 byte varint（arg4 可以大到 0x7f 以上？不行）
+——實際上單 byte varint 上限也是 0x7f。**要 alloc 大必須讓 varint#2 的完整值大且不截斷，
+但不截斷就代表單 byte，單 byte 上限 0x7f。**
+
+→ **`alloc` 恆 ≤ 0x97，永遠進不了 unsorted bin。**
+   第 14 節「B=0x500 → alloc=0x518 → unsorted bin 拿 libc leak」**這條路不成立，作廢。**
+   （那一格是我用錯誤的參數模型算出來的。）
+→ libc leak 必須改走別的路：UAF 分支裡 `malloc(0x520)` 的那顆 chunk 是固定 0x520，
+   free 後進 tcache 0x520 bin（不是 unsorted），只給 heap 指標。
+   **libc leak 要靠 arbitrary read 去讀已知含 libc 指標的位址**（例如 stdout FILE 結構）。
+
+### 15.6 交叉驗證（為什麼相信這個模型）
+
+用同一套模型跑 pc_agent 測過的單 byte 參數，能**完全重現**他的實測觀察：
+- `rec[0x28] = arg4` 再 clamp 到 0x20 → inline sample 長度 = `min(arg4, 0x20)` ✓
+- 他看到的內容 `[C_byte, payload...]` 對應 `memcpy(rec+0x30, payload, min(copylen,0x20))` ✓
+- `{0,1,2,0x40,0x7f}` 全部走 inline 路徑 ✓
+
+→ 模型能同時解釋「他看到的」與「他沒看到的」，可信度高。但**仍需動態驗證**。
