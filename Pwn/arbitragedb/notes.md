@@ -224,3 +224,31 @@ free(q);              // 0x4889  ★ q 被 free 了，但 rec[0x50] 還指著它
    → 目標是 stack return address（沒有 mprotect 不能放 shellcode，GOT 唯讀）
 5. **ORW ROP**：`openat(-100, "/home/arbitragedb/flag", 0, 0)` → `read` → `write(1,...)`
    備案：`rt_sigreturn` 有開 → SROP 一次設好所有暫存器
+
+---
+
+## 9. 數量限制與 heap grooming 空間
+
+- **import 記錄上限 16 筆**（`0x46a3`：`cmp $0xf` / `ja`），counter @ `0x1ee64f8`
+- **sys_imports 記錄上限 128 筆**（`0x48a8`：`cmp $0x7f`），counter @ `0x1ee5d70`
+- 兩者都**只增不減、沒有清除機制** → 一個連線裡最多 16 次有效 IMPORT
+
+含意：
+- 16 筆記錄足夠做 heap grooming（每次 IMPORT 可控制 `malloc(min(B+0x18,0x1000))`
+  的大小，等於能自由挑 tcache bin）
+- 超過 16 筆之後 `sub_4604` 會跳過記錄建立，但**前半的 malloc/memcpy 仍會執行**
+  → 溢出原語在用完 16 筆之後**仍然可用**（只是不再新增可讀的記錄）
+- 每次 IMPORT 結束都會 `free(p)`（`0x497b`）與 `free(q)`（`0x4889`，B!=C 時）
+  → 可自由把 chunk 餵進 tcache / fastbin，這是 tcache poisoning 的基礎
+
+## 10. 目前仍待動態驗證的假設（給 Linux 環境）
+
+| # | 假設 | 為什麼重要 | 怎麼驗 |
+|---|---|---|---|
+| 1 | B!=C 分支的 `free(q)` 造成的 UAF 能透過 sys_imports 印出 tcache fd/key | 免費 heap leak，整條 exploit 的起點 | 送合法 B!=C 的 IMPORT → `SELECT 1 FROM sys_imports`，看 blob hex |
+| 2 | 溢出能覆寫到下一筆記錄的 `+0x50`/`+0x28` 或相鄰 chunk header | 決定能否升級成 arbitrary read | gen_poc.py + gdb 看 heap 佈局 |
+| 3 | 能讓某 chunk 進 unsorted bin 讓 fd/bk 指向 main_arena | libc leak | 配置 > 0x410 的 chunk 再 free |
+| 4 | glibc 2.43 的 tcache poisoning 是否仍可行（mangling + key 檢查） | 決定劫持手法 | 實機測試 |
+
+**注意**：`alloc = min(B+0x18, 0x1000)`，所以單次最大只能配 0x1000；
+要進 unsorted bin（需 > tcache 上限 0x410）是做得到的（B 設 0x400 左右）。
