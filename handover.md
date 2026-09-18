@@ -74,6 +74,33 @@ unzip arbitragedb_*.zip
 
 這三個都需要 gdb 動態確認——正是交給你的原因。
 
+### ⚠️ 兩個地雷（`pwn_agent` 交接後主動回報，planner 已修掉）
+
+**1. `gen_poc.py` 是過時的，會給你假陰性——已標記 DEPRECATED，請用 `stage1.py`。**
+它的 SELECT 缺分號又含 `SELECT 1`（兩個雷都踩），參數 `B=0,C=0` 是單 byte varint
+→ UAF 閘門必關。**pc_agent 第一次測試失敗就是踩到這支。**
+`notes.md` 原本還有一行叫你「用 gen_poc.py + gdb 看 heap 佈局」，已一併改指向 `stage1.py`。
+
+**2. `__pycache__/rop.cpython-314.pyc` 曾被誤 commit** — 已從 git 移除並加進 `.gitignore`。
+那是 Python 3.14 bytecode，你的版本大概率不同，不要理它。
+
+### 🔴 可信度聲明（`pwn_agent` 自己的提醒，請認真看待）
+
+**`pwn_agent` 的所有結論都是純靜態推導，沒有任何一行被實際執行驗證過。**
+可信度較高的理由是它的模型能重現 `pc_agent` 的實測觀察（包括 `pc_agent` 沒看到的東西），
+**但那不等於已驗證**。請抱持懷疑、自己重驗，尤其是：
+- `notes.md` §15 的 UAF 參數
+- `notes.md` §13 的 setcontext pivot
+
+**第一個測試就用 `stage1.py`**：
+```bash
+python3 stage1.py > s1.bin          # 會印出四組參數的自我檢查
+./arbitragedb formal_state < s1.bin
+```
+看 `blob:<len>:<hex>` 欄位：
+- 變成 **heap 指標** → 模型正確，UAF leak 成立，往下走
+- 仍是 inline 的 `[C_byte, payload...]` → **模型有誤**，把 blob 原始 hex 丟給 planner 轉給 `pwn_agent`，它會修模型
+
 ### 回報方式
 
 - 有實質進展就更新 `status.md` 的 arbitragedb 條目，`git pull --rebase` 後 commit + push。

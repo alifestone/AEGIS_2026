@@ -213,7 +213,7 @@ free(q);              // 0x4889  ★ q 被 free 了，但 rec[0x50] 還指著它
 
 ### 8.5 完整 exploit 草案
 
-1. **heap leak**：IMPORT（`B != C`）→ `SELECT 1 FROM sys_imports` → 讀 freed chunk 的 fd
+1. **heap leak**：IMPORT（`B != C`，varint#2 須 >= 0x80）→ `SELECT * FROM sys_imports;` → 讀 freed chunk 的 fd
    → 解 mangling 得 heap base
 2. **libc leak**：用 heap overflow 覆寫某筆記錄的 `+0x50` / `+0x28`
    → 指向有 libc 指標的位置（例如 main_arena / stdout FILE 結構 / `__libc_argv`）
@@ -245,8 +245,8 @@ free(q);              // 0x4889  ★ q 被 free 了，但 rec[0x50] 還指著它
 
 | # | 假設 | 為什麼重要 | 怎麼驗 |
 |---|---|---|---|
-| 1 | B!=C 分支的 `free(q)` 造成的 UAF 能透過 sys_imports 印出 tcache fd/key | 免費 heap leak，整條 exploit 的起點 | 送合法 B!=C 的 IMPORT → `SELECT 1 FROM sys_imports`，看 blob hex |
-| 2 | 溢出能覆寫到下一筆記錄的 `+0x50`/`+0x28` 或相鄰 chunk header | 決定能否升級成 arbitrary read | gen_poc.py + gdb 看 heap 佈局 |
+| 1 | B!=C 分支的 `free(q)` 造成的 UAF 能透過 sys_imports 印出 tcache fd/key | 免費 heap leak，整條 exploit 的起點 | 送合法 B!=C 的 IMPORT（varint#2 >= 0x80）→ `SELECT * FROM sys_imports;`，看 blob hex |
+| 2 | 溢出能覆寫到下一筆記錄的 `+0x50`/`+0x28` 或相鄰 chunk header | 決定能否升級成 arbitrary read | **stage1.py**（不是 gen_poc.py，那支語法與參數都錯）+ gdb 看 heap 佈局 |
 | 3 | 能讓某 chunk 進 unsorted bin 讓 fd/bk 指向 main_arena | libc leak | 配置 > 0x410 的 chunk 再 free |
 | 4 | glibc 2.43 的 tcache poisoning 是否仍可行（mangling + key 檢查） | 決定劫持手法 | 實機測試 |
 

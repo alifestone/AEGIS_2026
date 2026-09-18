@@ -6,3 +6,7 @@
 *.til
 *.idb
 *.i64
+
+# Python bytecode
+__pycache__/
+*.py[cod]

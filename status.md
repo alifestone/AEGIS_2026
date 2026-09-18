@@ -685,7 +685,8 @@ hex_encode(src, len);                      // cap 0x100 → "blob:<len>:<hex>"
 
 #### 下一步（需要 Linux 環境 → 已交給 `linux_agent` 直接執行）
 
-1. **Q1（最優先）** 驗證 UAF leak：合法 B!=C 的 IMPORT → `SELECT 1 FROM sys_imports`，
+1. **Q1（最優先）** 驗證 UAF leak：合法 B!=C 的 IMPORT（**varint#2 須 >= 0x80**）
+   → `SELECT * FROM sys_imports;`（**必須有分號、不可含 `SELECT 1`**），
    看 blob hex 裡有無 tcache fd/key
 2. **Q2** 跑 `gen_poc.py` 確認 crash 與溢出落點
 3. **Q3** 確認 sys_imports 實際欄位對應

@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
 """
+⚠️⚠️ DEPRECATED（2026-09-18）—— 請改用 stage1.py，不要用這支。⚠️⚠️
+
+這支的 SELECT 語法與 varint 參數**兩者都是錯的**，照著跑會得到
+「什麼都沒發生」的假陰性結論（pc_agent 第一次測試失敗就是踩到這個）：
+
+  1. 查詢 `SELECT 1 FROM sys_imports`（第 50 行）兩個雷都踩到：
+     - 缺字面分號 `;` → handler 直接回 ERR syntax
+     - 含 `SELECT 1` → 走 0x5482 捷徑，只印假的 `ROW int:1`，蓋掉 sys_imports 的列
+     正確查詢是 `SELECT * FROM sys_imports;`
+  2. 參數 B=0, C=0 是**單 byte** varint，不會觸發 sub_4566 的 `and 0x7f` 截斷
+     → arg4 == arg5 → **UAF 閘門必關**。要開 UAF 必須 varint#2 >= 0x80（建議 0xff）。
+     pc_agent 實測此組不會 crash。
+
+保留此檔僅為歷史紀錄。正確入口：Pwn/arbitragedb/stage1.py（已含 assert 自我驗證）。
+
+---
+
 Pwn/arbitragedb — heap overflow PoC generator (static-analysis derived).
 
 漏洞：sub_4604 把 malloc 大小 clamp 到 0x1000，但 memcpy 長度取
