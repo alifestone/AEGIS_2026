@@ -564,7 +564,8 @@ planner 在 fan out 時寫進 handover.md 的結論，有 **4 條被下游 sessi
 | nursery_melody | 「58 個音符」 | **錯，是 59 個**。15.66s 處漏了一個獨立 A4（振幅 0.998）。**任何用 58 做的等分切塊都必然失敗** | `crypto` |
 | nursery_melody | 「休止是樂句換氣不是資料」 | **錯**，音樂落在嚴格 80 格網格上（一拍 0.2265s，誤差<0.03格），**休止是結構性的**，每個休止恰為 2 格 | `crypto` |
 | nursery_melody | 「跟已知兒歌原曲比對取偏離音」 | 死路。比對 10 首經典兒歌，最長共同子字串只有 **3 個音** → 「nursery melody」是 flavor text | `crypto` |
-| False_Continuity | 「144 張 = 72 組重複對，payload 382 字元」 | **錯**，是 **45~46 對 + 52~54 張真單張**，payload 約 **536~544** 字元 | `misc` |
+| False_Continuity | 「144 張 = 72 組重複對，payload 382 字元」 | **錯**，是 **48 對 + 48 單張**（像素級確認） | `misc` |
+| False_Continuity | 「灰字才是 payload」「重複對灰字 mask 完全相同」 | ⚠️ **兩條都錯，這是最大的一次翻案**。灰字層是**第二層誘餌**；重複對之間有**刻意的單字元差異**，**差異點才是 payload**。planner 與 misc 先前都只用 OCR 比對，解析度看不出差異 | `misc` |
 | False_Continuity | 「配不出對的是碎片太小訊號不足」 | **錯且方向相反**，單張組平均 37.0 glyph > 有對組 35.0 | `misc` |
 
 planner 已對前兩條（金幣 offset 算術、溢位可達範圍）與後兩條（配對一致率 gap、
@@ -660,3 +661,62 @@ CyCraft 兩題 8 發解決，以下三點對其他題（尤其任何 LLM 互動�
 
 ⚠️ **token 的坑**：CTFd 平台的 `ctfd_` API token **不等於**題目平台的 team token。
 CyCraft 要的是 XecArena 自己發的 `aegis-` 開頭 token，兩套系統不同。
+
+
+---
+
+## 🔥 False_Continuity 重大翻案（2026-09-18，由 `misc` 發現，planner 已像素級複核）
+
+### 真正的機制
+
+**我們之前整個方向都錯了。** 灰字 vs 黑字那層是**第二層誘餌**。
+真正的 payload 是「重複對之間**刻意印錯的那一個字元**」。
+
+planner 獨立複核（純像素相減，不經 OCR）：
+
+| 檢驗項目 | 結果 |
+|---|---|
+| 像素級配對 | **48 對 + 48 單張**（對稱結構） |
+| 真對 mean abs diff | 0.0282 ~ 0.1539 |
+| 單張的最佳夥伴 mean diff | 3.366 ~ 7.814 |
+| → 兩者之間 | **完全沒有灰色地帶** |
+| 每對的差異區域數 | **48 對全部都恰好只有 1 個區域** |
+| 差異落在黑字 vs 灰字 | **39 黑 / 9 灰** ← payload 主要在黑字上，不是灰字 |
+
+實例（`0391773af82be9ef` vs `334fb64834bd241e`）：
+111 個相異像素集中在單一 22×28 的字格內，放大目視 **一張印 `I`、另一張印 `T`**。
+**這不是 OCR 誤判，是兩張圖真的印了不同的字。**
+
+### 為什麼之前會錯
+
+planner 和 misc 都「驗證」過「重複對灰字 mask 完全相同」——
+**但兩人都是用 OCR 結果比對的**，而 OCR 的解析度根本看不出 `I`/`T` 這種差異，
+兩邊都被 OCR 歸一化掉了。**用錯了量測工具，所以得到一致但錯誤的結論。**
+
+→ 教訓：**驗證「兩張圖是否相同」要用像素，不要用 OCR。**
+
+### 題名的真意
+
+**False Continuity** = 兩份看起來「連續一致」的副本其實不一致，**差異點才是真訊號**。
+
+### 已抽出的 48 個差異字元（順序未解）
+
+```
+A: IDH7GauHL=rodTSFSDwr1c=zFdoMMuGdecxQso6Dsz99zSo1
+B: TI]vcH3o3=gH5uMI9snGhoosDDeznxTYryumoJAdvXZAxhxo
+```
+
+### planner 補充驗證（已排除）
+
+- ❌ **差異位置當索引**：48 個差異的重心座標 x 150~364、y 154~351 連續分布，
+  distinct x=40 / distinct y=41，不構成 1~48 的索引
+- ✅ **檔名 hex 有一致性**：48 對全部都是 `int(a,16) < int(b,16)`（48/48），
+  所以「哪一張是 A、哪一張是 B」有明確的 canonical 定義，不需另外決定
+- 📌 **P/S 交錯不隨機**：把 96 個單位（48 對取較小檔名 + 48 單張）按檔名 hex 排序後，
+  P/S 分布是 `PSPPPPPPPPSSPSSSPPPPPPSPPPPPPSSPPPSPPSSSPSSPPSSSSPSSPPSPSSSPPPPSPPPSSSPPSSPPPSPSSSSPSSSSSSSSSSSS`
+  —— **尾端幾乎全是 S**，明顯非隨機，值得追
+
+### 下一步
+
+48 個差異字元的**排序**仍未解。48 對 + 48 單張的對稱結構應該有意義，
+`misc` 正在查那 48 張單張是否為排序鑰匙。
