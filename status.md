@@ -1015,10 +1015,42 @@ pc_agent 推測「這兩個 slot 不是 A/B/C」，**這點是錯的**。完整�
 | `0x4bbc` `sub_4566` | `-0x58` | → `rcx` → `-0x60` → `alloc=min(x+0x18,0x1000)` | **B**（第二個） |
 | `0x4bfe` `sub_44bb` | `-0x78` | → `r8` → `-0x68` → `copylen` 初值 | **C**（第三個） |
 
-⚠️ **planner 自我更正**：我先前寫「`-0x78` 是被 `<=0x80` 檢查的 C varint」是**錯的**。
-實際上被 `0x4c43 cmp $0x80` 檢查的是 **`-0x80`（第一個 varint = 腳本的 A）**，
-不是第三個。這不影響閘門結論，但欄位對應要以本表為準。
-`sub_4566` 只是 `sub_44bb` 的 wrapper，三者都是純 varint。
+⚠️ **planner 自我更正 #1**：我先前寫「`-0x78` 是被 `<=0x80` 檢查的 C varint」是**錯的**。
+實際上被 `0x4c43 cmp $0x80` 檢查的是 **`-0x80`（第一個 varint）**，不是第三個。
+
+⚠️⚠️ **planner 自我更正 #2（重要）**：我寫「`sub_4566` 只是 `sub_44bb` 的 wrapper」
+**也是錯的**，由 `pwn_agent` 以 byte-level 複驗指出，planner 已獨立確認。
+
+`sub_4566` 有一條**截斷路徑**：
+```
+0x45ca  cmp $0x1,%rax  / jbe 45ea   ; *adv <= 1        → 回完整值
+0x45d7  test %al,%al   / jns 45ea   ; p[0] < 0x80      → 回完整值
+0x45e5  and $0x7f,%eax              ; ★ 否則只回 p[0] & 0x7f（截斷）
+```
+即 `arg4 = (*adv > 1 && (p[0] & 0x80)) ? (p[0] & 0x7f) : val`
+
+**我的錯誤成因**：我只讀了 `sub_4566` 開頭約 20 行（涵蓋到呼叫 `sub_44bb`）就下結論，
+沒讀到 return 路徑，卻聲稱「我看過了」。**斷言超出了實際檢查的範圍。**
+
+### ★ UAF 測不到的真正原因：兩個獨立因素同時存在
+
+| # | 因素 | 影響 |
+|---|---|---|
+| 1 | SELECT 查詢無效（缺分號 + 含 `SELECT 1`） | 即使觸發了也看不到輸出 |
+| 2 | **測試值全是單 byte varint** | 閘門在數學上不可能開啟 |
+
+第 2 點的證明（planner 獨立建模驗證）：
+
+```
+pc_agent 測的 {0, 1, 2, 0x40, 0x7f} 全部 < 0x80 → 單 byte → 截斷不觸發 → arg4 == varint2
+他讓 varint2 == varint3 時  ⇒  arg4 == arg5  ⇒  閘門 0x47f1 必定關閉
+```
+
+多 byte 才會截斷：`0xff → bytes ff01 → arg4 = 0x7f`、`0x80 → bytes 8001 → arg4 = 0x00`
+
+→ **正確參數：`varint2 = 0xff`（arg4=127）、`varint3 = 0`（arg5=0）→ 127 != 0 → UAF 開啟**
+→ 下次動態測試**必須同時套用兩點**，只修 SELECT 仍然測不到。
+→ `Pwn/arbitragedb/stage1.py` 已含正確參數與 assert。
 
 → **閘門 `0x47f1 cmp -0x60,-0x68` 就是 `if (B != C)`，UAF 分支的觸發條件沒有變。**
 → pc_agent 實測 A,B,C ∈ {0,1,2,0x40,0x7f} 都沒進分支，**原因應該在別處**，
