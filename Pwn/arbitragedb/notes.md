@@ -252,3 +252,81 @@ free(q);              // 0x4889  ★ q 被 free 了，但 rec[0x50] 還指著它
 
 **注意**：`alloc = min(B+0x18, 0x1000)`，所以單次最大只能配 0x1000；
 要進 unsorted bin（需 > tcache 上限 0x410）是做得到的（B 設 0x400 左右）。
+
+---
+
+## 11. 控制流劫持目標分析（靜態，回應 tcache alignment 提醒）
+
+### 11.1 先確認哪些東西是唯讀的
+
+```
+GNU_RELRO  0x128cb8 .. 0x129000   ← 執行期唯讀
+  [21] .init_array  0x128cb8      ✗ 在 RELRO 內，不能寫
+  [22] .fini_array  0x128cc0      ✗ 在 RELRO 內，不能寫
+  [24] .got         0x128eb8      ✗ 在 RELRO 內，BIND_NOW → 全部唯讀
+  [25] .data        0x129000      ✓ 可寫（只有 0x10 bytes）
+  [26] .bss         0x129020..    ✓ 可寫（約 31MB）
+```
+
+**結論：GOT / init_array / fini_array 全部打不了**（Full RELRO 名副其實）。
+全域也沒有任何存在可寫記憶體的 function pointer
+（掃過所有 `callq *` / `jmpq *`，除了 PLT 就只有 `0x1014` 的 `callq *%rax`，
+那是 `_init` 裡的 `__gmon_start__`，執行期碰不到）。
+
+### 11.2 Canary 狀況
+
+掃過所有 frame >= 0x100 的函式，**全部都有 canary**（都有 `mov %fs:0x28,%rax`）：
+`sub_6a03`(main, 0x1000) / `sub_41a9`(FILECHECK, 0x1000) / `sub_2e76`(0x1000) /
+`sub_54ce`(0x340) / `sub_62b8`(0x340) / `sub_1cd1`(0x520) / 各 SELECT handler(0x440)…
+
+→ 想蓋 return address 就**必須先 leak canary**。
+   但我們有 arbitrary read（第 8 節），可以直接讀 TLS 的 canary
+   （`fs:0x28`，位於 TCB；heap leak → 推 TLS 位址 → 讀出來），所以這條路仍然通。
+
+### 11.3 ★ 更好的目標：stdout / stdin FILE* 在 .data，**不在 RELRO 內**
+
+```
+0x129020  stdout  FILE*   ← 可寫
+0x129030  stdin   FILE*   ← 可寫
+```
+
+程式大量使用 `printf` / `puts` / `fgets` / `fflush`（`sub_6b93` 每跑完一條指令就
+`fflush`），且 `main` 開頭對兩者呼叫 `setvbuf`（`0x6a50`/`0x6a6e`）。
+
+→ **FSOP（File Stream Oriented Programming）是比蓋 return address 更乾淨的路線**：
+   用 overflow / tcache poisoning 把 `0x129020` 改成指向偽造的 FILE 結構
+   （偽造結構可以放在 heap 上，位址由 UAF leak 得知），
+   下一次 `fflush`/`printf` 就會走我們控制的 vtable。
+   **完全不需要 canary leak**。
+
+⚠️ 但 glibc 2.43 對 FILE vtable 有 `_IO_validate_vtable` 檢查（vtable 必須落在
+`__io_vtables` 區段內），所以要用 `_IO_wfile_jumps` / `_IO_str_jumps` 那類
+合法 vtable 搭配 `_wide_data` 的手法，而不是隨便指一個位址。
+這點需要在實機上對著這份 libc 2.43 確認可用的 gadget。
+
+### 11.4 tcache poisoning 的對齊限制（planner 提醒，已確認需納入）
+
+glibc 2.14+ 的 tcache：
+- `e->next` 有 **pointer mangling**：`next_mangled = (chunk_addr >> 12) ^ next`
+  → 要偽造 next 必須先知道 chunk 位址（heap leak，第 8.4 節可拿到）
+- 有 **`e->key` double-free 檢查**
+- **`tcache_get` 會檢查對齊**：取出的 chunk 必須 16-byte aligned，
+  否則 `malloc(): unaligned tcache chunk detected` 直接 abort
+
+→ 所以 tcache poisoning 的目標位址**必須 16-byte 對齊**。
+  `0x129020`(stdout) 與 `0x129030`(stdin) **都是 16-byte 對齊的**，✓ 可作為目標。
+  （`0x129020 % 0x10 == 0`，`0x129030 % 0x10 == 0`）
+  要蓋 stack return address 的話也要挑對齊的落點，通常配合「蓋一個 16-byte 對齊的
+  區域、讓 ret addr 落在其中」來處理。
+
+### 11.5 修正後的建議路線（優先序）
+
+1. **UAF heap leak**（第 8.4 節）→ heap base
+2. **libc leak**：B≈0x400 配一個 > 0x410 的 chunk → free 進 unsorted bin
+   → fd/bk 指向 main_arena → 用 UAF/arbitrary read 印出來 → libc base
+3. **劫持**：二選一
+   - **(推薦) FSOP**：tcache poisoning 目標 `0x129020`(stdout)，16-byte 對齊 ✓，
+     改成指向 heap 上偽造的 FILE → 下次 `fflush` 觸發
+   - **(備案) 蓋 return address**：需額外用 arbitrary read 撈 canary
+4. **ORW ROP / SROP**：`openat(-100,"/home/arbitragedb/flag",0,0)` → `read` → `write(1)`
+   （`rt_sigreturn` 有開，SROP 可一次設好暫存器，在 gadget 不足時特別好用）
