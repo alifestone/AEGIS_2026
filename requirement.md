@@ -424,3 +424,54 @@ payload 都已經排好優先序寫在 [CyCraft/notes.md](CyCraft/notes.md)，
   就要改用別的方法，這個資訊對那兩題很有價值
 
 不急，有機會問再問就好。
+
+
+---
+
+## 🔴 9. 【待決】要不要讓我們在本機 WSL 跑 arbitragedb 的 binary？
+
+- **時間**：2026-09-18
+- **狀態**：🔴 **待你決定 —— 這是目前唯一擋住 Pwn(711分) 的事**
+- **註**：本 session 即將交接給新 planner，這條請沿用
+
+### 背景
+
+我發現**這台機器裝了 WSL / Ubuntu 24.04**，而且題目的 binary 跑得起來：
+
+```
+$ ./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state
+adb>
+```
+
+arbitragedb 卡了整場，就是因為「需要 Linux 環境做動態驗證」而本機是 Windows。
+WSL 可以直接解掉這個瓶頸，不必再繞 pc_agent。
+
+### 為什麼要問你而不是直接做
+
+那是一個**來路不明的 CTF binary**。雖然：
+- WSL 有相當程度的隔離
+- 這正是題目預期的行為（題敘寫「RCE me」）
+- 我們只在本地跑，完全不碰遠端
+
+但**在你的機器上執行不受信任的程式，應該由你決定**，不是我自己決定。
+所以我沒有跑（先前有一次工具呼叫被你拒絕，之後我就停下來問，沒有重試）。
+
+### 請選一個
+
+1. **交給 `pwn_agent` 用 WSL**（我建議這個）
+   它對這個 binary 最熟 —— UAF 閘門、FSOP 路線、SROP chain、
+   `setcontext` 用 rdx、`sub_4566` 截斷全是它挖出來的。planner 留在協調位置。
+2. **planner 自己跑**，把結果交給 pwn_agent
+3. **都不要**，維持純靜態分析（那 arbitragedb 大概就只能停在這裡）
+
+### 如果同意，第一件事只要跑一個測試
+
+```bash
+python3 Pwn/arbitragedb/stage1.py > s1.bin
+./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state < s1.bin
+```
+看輸出的 `blob:` 是不是從 `[C_byte, payload...]` 變成 **heap 指標**。
+**那一個測試就能判定整套 exploit 模型對不對。**
+
+（`stage1.py` 的參數已修正：`varint2=0xff, varint3=0`，
+ 且查詢已改成有分號的 `SELECT * FROM sys_imports;`）
