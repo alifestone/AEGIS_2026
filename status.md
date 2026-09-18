@@ -463,6 +463,11 @@ planner 在 fan out 時寫進 handover.md 的結論，有 **4 條被下游 sessi
 |---|---|---|---|
 | Slime | 「欄位有上限，改金幣是死路」 | **錯**，金幣在 offset **112**，完全無範圍檢查（有檢查的是 136/144/152） | `rev` |
 | Slime | 「4096 次寫入差 2 次可蓋 return address」 | **錯**，最遠只到 `rbp-0x10`，離 canary 差 8 bytes，**結構上碰不到** | `rev` |
+| False_Continuity | 「浮水印可能帶排序資訊」「接合撕裂邊緣還原大圖」 | **錯**，planner 把明暗極性搞反了。背景是平坦 218、紙屑比背景**亮**(226~239)、浮水印是紙屑內部 219~231 的暗線。每張紙屑上的橢圓軌道圖都**完整置中**，是逐張重複的裝飾 | `misc` |
+| False_Continuity | 「OCR 95% 夠用」 | 實際約 **96%**，換算 **約 20/536 個 payload 字元是錯的**。嚴格解碼必被打爛，**必須用 alts 做容錯搜尋** | `misc` |
+| nursery_melody | 「58 個音符」 | **錯，是 59 個**。15.66s 處漏了一個獨立 A4（振幅 0.998）。**任何用 58 做的等分切塊都必然失敗** | `crypto` |
+| nursery_melody | 「休止是樂句換氣不是資料」 | **錯**，音樂落在嚴格 80 格網格上（一拍 0.2265s，誤差<0.03格），**休止是結構性的**，每個休止恰為 2 格 | `crypto` |
+| nursery_melody | 「跟已知兒歌原曲比對取偏離音」 | 死路。比對 10 首經典兒歌，最長共同子字串只有 **3 個音** → 「nursery melody」是 flavor text | `crypto` |
 | False_Continuity | 「144 張 = 72 組重複對，payload 382 字元」 | **錯**，是 **45~46 對 + 52~54 張真單張**，payload 約 **536~544** 字元 | `misc` |
 | False_Continuity | 「配不出對的是碎片太小訊號不足」 | **錯且方向相反**，單張組平均 37.0 glyph > 有對組 35.0 | `misc` |
 
@@ -485,3 +490,53 @@ glyph 數分布）獨立複核，確認推翻正確。
 token 不在 repo 也不在 README 快照，已列為急件請使用者去 CTFd 撈。
 ⚠️ 平台 quota **用完不會補**（`quota does not refill`），拿到 token 後不能亂槍打鳥。
 好消息：無效 token 在 auth 層就被 400 擋掉、**不消耗 quota**，可以安全驗證 token 對不對。
+
+
+---
+
+## 各題最新技術狀態（2026-09-18 第二輪協調）
+
+### Crypto/nursery_melody（100）— `crypto` session
+
+**正確序列（59 音，不是 58）**：
+```
+CGCCAECEBCGCABCEBAFCEBCFDAEAFCAGABCGCCFACAGCGFCEBCAEACGACFB
+```
+次數 C×19 A×12 G×7 E×7 B×7 F×6 **D×1**
+
+**80 格嚴格網格**（`.`=休止 `-`=延長，一拍 0.2265s）：
+```
+CGCCAEC-EBCGC..ABCEB..AFCEBCFD..AE..AFCAG..ABCGCCFAC-AG-CGFC-EB-CAE..A..CGAC-FB-
+```
+- 休止切出 **8 個樂句**，音符數 12,5,8,2,5,20,1,6（第 7 句只有單獨一個 A）
+- 8 句**開頭音** = `C A A A A A A C`（連續 6 句以 A 開頭，不像隨機）
+- 確認 monophonic、只有 7 個音高、無升降記號
+
+**已窮舉排除**（`crypto` 實跑，勿重做）：base-7 全排列 5040 種 × 每 2/3 音 × 所有 offset
+× endian × ASCII 位移 0~99 × 多種 flag 字母表；base-7 大數轉 bytes/base-26/36/37；
+8 符號 3-bit × 8! × 8 offset；2^7 二元切分；80 格切 10×8 bit；音程差分 mod 7；
+hex A-F；各音當分隔符；10 首已知兒歌比對；MP3 容器層重驗。
+planner 另補跑：base-7 配 ASCII offset -40~+80 全掃，99 個全 printable 候選**無一可讀**。
+
+### Pwn/arbitragedb（711）— `pwn_agent` session
+
+**新發現：不需觸發溢出的 UAF heap leak**
+`sub_4604` 在 B != C 分支：`q=malloc(0x520); rec[0x50]=q; rec[0x28]=0x20; free(q);`
+→ `rec[0x50]` 成為 dangling pointer。
+而 `sub_54ce`（SELECT sys_imports）**無條件** hex dump `rec[0x50]` 指到的 `rec[0x28]` bytes。
+→ **送一個合法 IMPORT 就能 dump 已 free 的 chunk**（tcache fd/key）＝免費 heap base leak。
+這是 PIE + Full RELRO 下最難拿的一塊，而且是免費的。
+
+路線：UAF 拿 heap leak → overflow 改 `rec[0x50]` 讀 libc → tcache poisoning → ORW ROP。
+⚠️ glibc 2.43 tcache 有 pointer mangling + alignment 檢查，目標位址須 16-byte aligned。
+
+**動態驗證已由 planner 代轉 pc_agent**（Q1 UAF leak / Q2 crash / Q3 欄位對應）。
+
+### ⚠️ 環境問題：pc_agent 可見性不一致
+
+`pwn_agent` 實測 `SendMessage to:"pc_agent"` 得到 `No agent named 'pc_agent' is reachable.`，
+且它的 `ListAgents` 完全沒有 Remote Control 類型的 row。
+但 planner（`aegis-2026-b2`）看得到也送得到。
+→ **Remote Control 連線疑似綁在 planner session**。
+**workaround：所有要給 pc_agent 的任務一律經由 planner 轉送。**
+（planner 先前誤判成「pwn_agent 看漏了」，已更正。）
