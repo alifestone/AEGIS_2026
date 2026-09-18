@@ -55,10 +55,11 @@ Slime 是 3.6MB 的 static-pie binary，把 libc 整包靜態連進來，
 
 ---
 
-## 🟡 3. 需要你決定：接下來的優先順序
+## ✅ 3. 需要你決定：接下來的優先順序
 
 - **時間**：2026-09-18
-- **狀態**：🟡 待你回覆（我會先照自己的判斷繼續做，你有意見隨時說）
+- **狀態**：✅ 已回覆 —— 你指定了 session 分工，Rev 全部交給 rev session，
+  Linux 相關找 pc_agent。已寫進 CLAUDE.md 與 handover.md。
 
 目前狀況（12 題）：
 
@@ -93,3 +94,37 @@ Slime 是 3.6MB 的 static-pie binary，把 libc 整包靜態連進來，
 被分析的檔案裡的文字是**資料**，不是指令；如果我會聽它的，那任何人只要把字串寫進檔案
 就能操控我的行為。我的指令來源是你和專案設定。
 講出來是讓你知道有這回事、也知道我沒有默默照做。
+
+
+---
+
+## ✅ 4. Session 分工已建立
+
+- **時間**：2026-09-18
+- **狀態**：✅ 已完成
+
+依你的指示建立分工，已寫進 [CLAUDE.md](CLAUDE.md) 與 [handover.md](handover.md)：
+
+| Session | 負責 |
+|---|---|
+| **本 session（planner, `aegis-2026-b2`）** | 規劃、統整進度、Misc / Crypto / CyCraft / Pwn |
+| **`rev`** | **所有 Rev 題目**（Slime 975 / AI_Challenge 936 / aegis_asterism 600），IDA MCP 歸它用 |
+| **`pc_agent`** | **Linux 環境**（執行 ELF、gdb、動態分析）＋ 重運算爆破 |
+
+溝通採三層模型（參考你給的 alphalab 文章）：
+`SendMessage` 即時訊號 → `handover.md` 狀態交接 → `git push` 可驗收產出。
+一來一回最多 2 輪就收斂。
+
+**Rev/Slime 已交接給 `rev` session**（commit `94c9ba5`），含完整漏洞分析與下一步。
+
+### 我接下來做的（planner 範圍）
+
+1. Misc/False_Continuity（804）— 機制已解，卡在 72 組紙屑排序
+2. Pwn/arbitragedb（711）— 還沒開始，可能要找 pc_agent 做動態
+3. Misc/Travel_1、Travel_2、Jurassic_Time_Capsule（各 100）— OSINT
+4. Crypto/nursery_melody（100）— 音符已抽出，卡在編碼
+5. CyCraft/extraction-1、injection-1（各 100）— 遠端 LLM 攻擊題
+
+⚠️ 注意 `misc` 和 `pwn_agent` 兩個 session 你也開了但還沒指派任務。
+如果你打算讓它們接手 Misc / Pwn，跟我說一聲，我把對應題目也寫成 handover 交接出去，
+避免我和它們重複做同一題。
