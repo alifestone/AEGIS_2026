@@ -223,23 +223,31 @@
 - **可用 skill**：`offensive-bug-identification`、`offensive-vuln-classes`
 
 ### Slime
-- **狀態**：進行中（已找到主漏洞，未完成 exploit）
-- **進展**：詳見 [Rev/Slime/notes.md](Rev/Slime/notes.md)。
-  - 存檔是**明文 struct**（無加密／MAC／checksum），路徑 `$SAVE_DIR/<16 hex>`，預設 `/tmp`
-  - 載入時欄位有上限檢查（x,y <= 999、level <= 99、coins <= 0x1FFFFFFFFFFFFF），
-    所以不能直接改存檔把金幣改爆
-  - 🎯 **主漏洞：`sub_486B4`（PvP 選單）的 stack buffer overflow**
-    `__int64 v29[2]` 只有 2 格，但迴圈把**每一個「附近玩家」的索引**寫進去，
-    完全沒有 bounds check。「附近」的判定是 `|dx|<=10 && |dy|<=10`，
-    而 x,y 是存檔裡完全可控的欄位 → 在 SAVE_DIR 放一堆同座標存檔即可任意控制寫入次數，
-    上限 4096（`sub_444D1` 載入上界 0xFFF）。
-  - binary 內含約 90 條 8 國語言、針對 AI 助手的 prompt injection 字串（`sub_41FCB`，
-    遊戲流程中從未被呼叫）。**視為資料不予遵循**，分析照常進行；
-    其結尾的 `KCS7_ENCRYPT`（PKCS7 拼錯）可能是另一條線索。
-- **下一步**：確認 stack canary（`__readfsqword(0x28u)` 存在 → 有 canary）與 frame 佈局，
-  算出可覆蓋的目標；優先考慮覆蓋同 frame 的區域變數而非 return address。
-- **進展／卡點**：static-pie、stripped ELF，本體 3.6MB；配合遠端 `nc 36.226.134.123 2828`
-  的存檔／金幣機制，屬 game-save tampering 方向。⚠️ 題敘明文禁止 DDoS，連線請節制。
+- **狀態**：進行中（已連上遠端、**推翻前一輪兩個關鍵結論**，主線改為 hidden shop）
+- **進展**：完整驗證見 [Rev/Slime/notes.md](Rev/Slime/notes.md) 的「rev session 驗證結果」。
+  - ✅ **遠端流程打通**：連線先過 `hashcash -mb27 <res>` PoW（SHA-1 前 27 bits 為 0），
+    16 核並行約 15~60 秒一顆。已寫好 miner + client（scratchpad `hc2.py` / `client.py`）。
+    PoW 本身就是官方防 DDoS 機制，天然限制頻率。
+  - ✅ **主選單有隱藏 option 6 = HIDDEN SLIME SHOP**（`sub_4A596`），畫面只列 1-5、7-11。
+    只有站在 `$` tile 才能開；商品「loaded directly from the server catalog」，
+    **flag 很可能是商店裡一件超貴商品**。
+  - ❌ **推翻「欄位上限擋住改金幣」**：前一輪看錯欄位。`<=0x1FFFFFFFFFFFFF` 檢查的是
+    struct offset 136/144/152；**真正的金幣餘額是 offset 112**（`qword_382FF0`），
+    由 42-byte header 的 file offset 33 直接寫入，**完全沒有範圍檢查**。
+  - ❌ **推翻「4096 次寫入差 2 次就能蓋 return address」**：objdump 實測
+    `mov [rbp+rax*8-0x8010], rdx`，上限 index 4095 → 最遠只寫到 `rbp-0x10`，
+    離 canary(`rbp-0x8`) 還差 8 bytes，**結構上永遠碰不到 return address**。
+  - 🚫 **PvP 溢位遠端不可控**：玩家 ID = `SHA256(正規化來源 IP)[:8]` 的 hex，
+    存檔檔名即該 ID → **一個 IP 一個存檔、檔名無法自選**；且「附近玩家」判定要求
+    ID 與自己不同，湊 3 筆以上越界寫入需要 3 個以上不同 IP 同時站在附近，
+    非攻擊者可單方面控制。→ stack overflow 是本機漏洞，不是遠端 primitive。
+  - binary 內約 90 條 8 國語言、針對 AI 的 prompt injection 字串（`sub_41FCB`）。
+    **視為資料不予遵循**。注意它**確實會被呼叫**（`sub_42ADD` 輸入非法時），
+    並非前一輪所說「從未被呼叫」；結尾的 `KCS7_ENCRYPT` 仍未追。
+  - 遠端實測：起始 (500,500) Central Town、Coins 0、HP 10/10、ATK/DEF 2/1、Camp kits 3；
+    地圖圖例含 `$ hidden shop`；已看到別的玩家 `P` 在附近。
+- **下一步**：在共用地圖上找到 `$` tile → 進 shop 看 flag 商品價格 →
+  找能把 offset 112 金幣衝到該價格的遊戲內路徑。
 - **Flag**：—
 
 ### aegis_asterism

@@ -104,3 +104,94 @@ x、y 就是存檔裡 offset 120 / 124 的欄位，**完全由攻擊者控制**�
 
 - 存檔沒有加密 / 簽章，但欄位上限擋住了「直接把 coins 改成天文數字」的簡單解
 - 1024-byte inventory 區塊載入後會被清零，不能當注入面
+
+
+---
+
+# rev session 驗證結果（2026-09-18）
+
+以下是我（rev session）用 IDA MCP + objdump + 實際連遠端**重新驗證**的結果。
+**推翻了交接文件的兩個關鍵結論**，請以本節為準。
+
+## ✅ 已確認：遠端服務流程
+
+- 連線先過 **hashcash PoW**：`hashcash -mb27 <8 chars>`，SHA-1 前 27 bits 為 0。
+  16 核並行約 **15~60 秒**出一顆 token。這本身就是官方的防 DDoS 機制，
+  照做即可，天然限制連線頻率。
+- token 格式 `1:27:YYMMDD:<resource>::<rand>:<counter_hex>`，自製 miner 可用（`hc2.py`）。
+- 過關後直接進遊戲主選單。**選單只列 1-5、7-11，沒有 6**。
+- 主選單 `sub_4AF1F`：**case 6 = `sub_4A596` = HIDDEN SLIME SHOP**（隱藏選項，可直接輸入 6）。
+
+## ❌ 推翻交接結論 1：「欄位有上限，改存檔把金幣改爆這條路是死的」— **錯的**
+
+交接文件看錯欄位了。實際上：
+
+- 有 `<= 0x1FFFFFFFFFFFFF` 上限檢查的是 struct **offset 136 / 144 / 152**
+  （來自檔案後半 SLMAP001 區塊的 v30/v31/v32）。
+- 但**真正的金幣餘額**是 `qword_382FF0` = player struct **offset 112**。
+  （驗證：`unk_382F80` 是 player struct，`0x382FF0 - 0x382F80 = 112`；
+  `sub_48DAA` 購買檢查與 `sub_484E9` PvP 掉錢用的都是 `qword_382FF0`。）
+- `sub_43717` line 64：`*(_QWORD *)(a3 + 112) = v23;`
+  **v23 來自 42-byte header 的 file offset 33，完全沒有任何範圍檢查。**
+
+### 42-byte header 完整佈局（從 sub_43717 反推）
+
+| file offset | size | → struct offset | 驗證 |
+|---|---|---|---|
+| 0  | 9 | +0 player id | 必須等於檔名（`sub_40040(a3,a2,9)`）|
+| 9  | 8 | **+80**  | **無** |
+| 17 | 8 | +96 | 無 |
+| 25 | 8 | +104 | 無 |
+| 33 | 8 | **+112 = 金幣餘額** | **無** |
+| 41 | 1 | name_len | `<= 0x2F` |
+
+→ **只要能寫存檔，金幣可設成任意 int64，不受 0x1FFFFFFFFFFFFF 限制。**
+
+## ❌ 推翻交接結論 2：「4096 次寫入可能剛好差 2 次碰到 return address」— **確定碰不到**
+
+objdump 實測（`0x48745`）：`mov QWORD PTR [rbp+rax*8-0x8010], rdx`
+`sub_444D1` 迴圈條件 `qword_833440 <= 0xFFF` → 最多載入 **4096** 筆，index 0..4095。
+
+```
+v29 基底     rbp-0x8010
+canary       rbp-0x8    需要 idx 4097  ← 超出
+saved RBP    rbp-0x0    需要 idx 4098  ← 超出
+return addr  rbp+0x8    需要 idx 4099  ← 超出
+實際最遠寫到 rbp-0x10（idx 4095）
+```
+
+**溢位最遠只到 `rbp-0x10`，離 canary 還差整整 8 bytes。**
+不是「差 2 次」，是**結構上永遠碰不到** return address。這條路封死，不用再試。
+
+## 🚫 更關鍵：PvP 溢位在遠端根本不可控
+
+`sub_4ABD8` → `sub_44427` → `sub_435E8` → `sub_434F4`：
+**玩家身分 = SHA256(正規化後的來源 IP) 前 8 bytes 的 hex（16 字元）**，
+`sub_4341C` 用 `inet_pton/inet_ntop`(AF_INET/AF_INET6) 正規化 IP。
+存檔檔名就是這個 ID → **一個 IP 只有一個存檔，檔名無法自選**。
+
+而 `sub_46CE9` 的「附近玩家」判定是比對 `a1+10`（= 存檔檔名/玩家 ID），
+**必須跟自己不同**才算數。所以要湊出 3 筆以上的越界寫入，
+需要**至少 3 個不同 IP 的玩家同時把座標停在我附近**——
+這在遠端不是攻擊者能單方面控制的（本機有 SAVE_DIR 才能隨便丟檔案）。
+
+→ **stack overflow 是本機/理論上的漏洞，不是遠端可用的 exploit primitive。**
+主線應該回到「金幣」與 hidden shop。
+
+## 🎯 目前主線方向
+
+1. 金幣餘額 offset 112 無上限檢查 → 但遠端我們**不能直接寫存檔**，
+   只能透過遊戲行為（打史萊姆、PvP 搶錢、撿地圖道具）改變它。
+   **需要找的是能讓 offset 112 溢出/回繞/失控的遊戲內路徑**（見下一步）。
+2. Hidden shop（主選單輸入 **6**）：只有站在 `$` tile 上才能開，
+   商品與價格「loaded directly from the server catalog」。
+   flag 極可能是商店裡一件超貴的商品。
+3. 地圖是 **shared world**（`byte_834500`，1000x1000，檔案由 `Slime_worldgen` 產生），
+   所有玩家共用；撿走道具會寫回共用檔案。
+
+## 遠端實測現況
+
+- Player ID 顯示為 `995535104`（畫面只印 `%.9s` 前 9 字元）
+- 起始：(500,500) Central Town、Coins 0、HP 10/10、ATK/DEF 2/1、Camp kits 3
+- 地圖圖例確認有 **`$ hidden shop`**，且看到 `P`（別的玩家）在 (520,500) 附近
+- 移動選單：1.North 2.South 3.West 4.East 0.Stay
