@@ -472,3 +472,32 @@ glibc 2.29 之後 setcontext 改讀 `rdx`。所以 FSOP 觸發時**必須讓 `rd
 
 **唯一還需要動態確認的**：步驟 4→5 之間 `rdx` 實際會指到哪，
 以及 glibc 2.43 的 `_IO_validate_vtable` 在這條路徑上的確切檢查點。
+
+---
+
+## 14. 四組 exploit 參數已靜態驗證可達（`stage1.py`）
+
+把 `sub_4988`（IMPORT 解析）+ `sub_4604`（漏洞函式）的所有判斷條件用 Python 重現，
+確認以下四組參數都能**通過全部檢查**並到達想要的分支：
+
+| 目的 | A | B | C | payload | size | alloc | copylen | overflow | UAF 分支 |
+|---|---|---|---|---|---|---|---|---|---|
+| **純 UAF leak** | 1 | 0x20 | 0x10 | 0x20 | 0x33 | 0x38 | 0x20 | −0x18（不溢出） | ✓ |
+| **純 overflow** | 1 | 0 | 0 | 0x2000 | 0x2013 | 0x18 | 0x2000 | **+0x1fe8** | ✗ |
+| **UAF + overflow** | 1 | 0x400 | 0x80 | 0x2000 | 0x2015 | 0x418 | 0x2000 | **+0x1be8** | ✓ |
+| **unsorted bin** | 1 | 0x500 | 0x10 | 0x40 | 0x54 | 0x518 | 0x40 | −0x4d8 | ✓ |
+
+通過的檢查包含：`0 <= size <= 0x4000`、`size > 0x11`、`memcmp(buf,"ADB1",4)==0`、
+`off < size`、`C <= 0x80`。（`stage1.py` 裡有 assert 把這些釘死。）
+
+### 重要推論
+
+1. **「UAF + overflow」可以在同一條 IMPORT 裡同時達成**（第三組）
+   → 不需要分兩次、也不用擔心中間 heap 狀態變化。
+2. **unsorted bin 可達**：`alloc` 上限雖然是 0x1000，但 `B=0x500` 給出 `alloc=0x518`，
+   已超過 tcache 上限 0x410 → free 後會進 unsorted bin，其 `fd`/`bk` 指向 `main_arena`
+   → **這是 libc leak 的來源**，而且同樣透過 `sys_imports` 的 blob 印出來。
+3. 四組都遠低於 16 筆記錄上限，可以在同一個連線裡全部做完。
+
+`stage1.py` 直接產生可餵給程式的 stdin（UAF → SELECT → unsorted → SELECT → QUIT），
+並附 `parse_blob()` / `demangle()` / `recover_heap_base()` 幫忙解析輸出。
