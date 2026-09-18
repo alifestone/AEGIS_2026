@@ -23,7 +23,7 @@
 | 6 | Jurassic_Time_Capsule | Misc | 未開始 | — |
 | 7 | Travel_1 | Misc | 進行中 | — |
 | 8 | Travel_2 | Misc | 進行中 | — |
-| 9 | arbitragedb | Pwn | 未開始 | — |
+| 9 | arbitragedb | Pwn | 進行中 | 找到 heap overflow (sub_4604)，seccomp 只允許 ORW |
 | 10 | AI_Challenge | Rev | 未開始 | — |
 | 11 | Slime | Rev | 進行中 | — |
 | 12 | aegis_asterism | Rev | 未開始 | — |
@@ -203,13 +203,55 @@
 ## Pwn
 
 ### arbitragedb
-- **狀態**：未開始
-- **進展／卡點**：zip 內附 `arbitragedb`、`libc.so.6`、`ld-linux-x86-64.so.2` 與
-  `formal_state/`（TSV tables + index + mvcc）。目標 RCE，flag 在遠端
-  `/home/arbitragedb/flag` → 必須是 **remote exploit**，不是本地讀檔。
+- **狀態**：進行中（靜態分析完成，**已定位主漏洞**，待 pc_agent 動態驗證）
+- **完整分析**：[Pwn/arbitragedb/notes.md](Pwn/arbitragedb/notes.md)
+  PoC 產生器：[Pwn/arbitragedb/gen_poc.py](Pwn/arbitragedb/gen_poc.py)
+
+#### 已確認的結論（objdump 靜態分析，尚未動態驗證）
+
+- **保護全開**：PIE + Full RELRO（`BIND_NOW`，GOT 唯讀）+ NX + Canary
+  → 不能改 GOT，必須 leak + ROP
+- **libc = Ubuntu GLIBC 2.43-2ubuntu2.3**（很新）
+- **指令介面**：prompt `adb> `，`fgets(buf, 0x1008, stdin)`；
+  指令有 `IMPORT` / `FILECHECK` / `SELECT ...` / `QUIT`。
+  啟動需 `./arbitragedb formal_state`（argc 必須為 2）
+
+- 🔴 **主漏洞：`sub_4604` 的 heap overflow**（clamp 配置量、卻用 max 當 copy 長度）
+  ```c
+  alloc = B + 0x18;  if (alloc > 0x1000) alloc = 0x1000;   // 配置被 clamp
+  p = malloc(alloc);
+  copylen = C;  if (remaining >= copylen) copylen = remaining;  // ← 取較大者！
+  memcpy(p, payload, copylen);                              // ★ overflow
+  ```
+  `remaining` 由 `IMPORT ... SIZE`（上限 0x4000）控制。
+  設 B=0 → `alloc=0x18`，送 0x2000 payload → **溢出 ~0x1fe8 bytes 全可控 raw binary**。
+
+- 🔴 **seccomp（決定 exploit 形態，非常重要）**：`sub_30e5` 安裝 BPF，
+  預設動作是 `SECCOMP_RET_ERRNO|EPERM`（不是 KILL）。allowlist 只有：
+  `read, write, close, fstat, lseek, brk, rt_sigreturn, exit, exit_group, openat, newfstatat`
+  → **沒有 execve、沒有 mmap/mprotect**
+  → 題敘雖寫 RCE，實際只能做 **ORW ROP chain** 讀 `/home/arbitragedb/flag`，拿不到 shell
+  → 沒有 mprotect ⇒ 不能跳 shellcode，必須純 ROP（`rt_sigreturn` 有開 → SROP 可當備案）
+  → `open`(2) 沒開，只有 `openat`(257)，要用 `openat(AT_FDCWD=-100, path, O_RDONLY, 0)`
+  → 本地測試可用環境變數 `ADB_NO_SECCOMP=1` 關掉 seccomp
+
+#### 已排除的方向（不要重做）
+
+- ❌ **FILECHECK 路徑穿越**：驗證器 `sub_40e7` 要求檔名長度**剛好 0x44**、
+  前 64 字元必須是 hex、後綴必須 `.chk` → 無法 traversal，且讀檔上限 0x1000 進 0x1010 buffer
+- ❌ **varint decoder**（`sub_44bb`）：LEB128，有 bounds check（`>=len` 或 `>9` 就 fail），安全
+- ❌ **format string**：所有 `printf` 的 format 都是 rodata 常數
+- ❌ **fuzzing `formal_state/` 檔案**：遠端無法改這些檔案，攻擊面只有 stdin 指令。
+  `.bti` 內容只是 `generated covering index placeholder` 文字，不是二進位結構
+
+#### 下一步（需要 pc_agent 的 Linux 環境）
+
+1. 跑 `gen_poc.py` 確認 crash，確定溢出打到哪個相鄰 chunk
+2. 找 leak 管道：`SELECT 1 FROM sys_imports`（`sub_54ce`）印出什麼欄位、能否洩漏指標
+3. glibc 2.43 heap 技巧（tcache poisoning / house-of-*）→ 劫持 return address
+4. 最終 ORW ROP chain
+
 - **Flag**：—
-- **可用 skill**：`offensive-exploit-development`、`offensive-basic-exploitation`、
-  `offensive-mitigations`、`offensive-crash-analysis`、`offensive-shellcode`、`offensive-toctou`
 
 ---
 
