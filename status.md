@@ -560,6 +560,12 @@ Travel_2 同樣**未提交**。恢復時可從上面「下一步」直接接手�
 - **Flag**：—
 - **可用 skill**：`offensive-osint`、`offensive-osint-methodology`
 
+- **狀態更新（2026-09-18 暫停）**：⏸️ 暫停，**未提交過任何答案**。
+  本 agent 這輪**沒有實質推進**——時間都用在 CyCraft（已解 2 題）與 Travel_1／Jurassic。
+  仍停在交接時的狀態：8704×4352 equirectangular 360° 環景、metadata 全清、
+  研判火山型熱帶島嶼（留尼旺／模里西斯／夏威夷），**三個候選都未排除也未確認**。
+  已自行驗證：無 EXIF、EOI 後無 trailing bytes（JPEG segment dump 只有 DQT/SOF0/DHT/SOS）。
+
 ---
 
 ## Pwn
