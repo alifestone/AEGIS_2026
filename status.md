@@ -987,9 +987,33 @@ UAF code 確實存在（`0x47fb malloc(0x520)` … `0x4889 free(q)`），
 實測 A,B,C ∈ {0,1,2,0x40,0x7f} 全走 inline 路徑，sys_imports 只印 `rec+0x30` 的
 inline sample（= `[C_byte, payload...]`，長度 `min(B,0x20)`），**從未出現 heap 指標**。
 
-→ **「送一個 B != C 的 IMPORT 就有免費 heap leak」目前不成立。**
-→ 下一步：用 IDA 解 `sub_4988` parser，找出 `"ADB1"+12` 這 0x10 header 裡
-  哪兩個欄位對應 `[rbp-0x60]`/`[rbp-0x68]`（pc_agent 一直填 0）。
+→ ~~**「送一個 B != C 的 IMPORT 就有免費 heap leak」目前不成立。**~~
+→ ~~下一步：用 IDA 解 `sub_4988` parser，找出 header 裡哪兩個欄位對應 -0x60/-0x68。~~
+
+#### ⚠️ planner 用 objdump 追完了：`-0x60`/`-0x68` **確實就是 B 和 C**
+
+pc_agent 推測「這兩個 slot 不是 A/B/C」，**這點是錯的**。完整追蹤：
+
+`sub_4604` 的 prologue（`0x4610`~`0x4620`）直接給出參數對應：
+```
+0x4610  mov %rdi,-0x48(%rbp)    ← name
+0x4614  mov %rsi,-0x50(%rbp)    ← payload
+0x4618  mov %rdx,-0x58(%rbp)    ← remaining
+0x461c  mov %rcx,-0x60(%rbp)    ← B  ★
+0x4620  mov %r8, -0x68(%rbp)    ← C  ★
+```
+佐證：`0x4624` 取 `-0x60` 算 `alloc=min(x+0x18,0x1000)`（B 的作用），
+`0x4672` 取 `-0x68` 當 `copylen` 初值（C 的作用）—— 與已知語義完全一致。
+
+呼叫端 `0x4c94` 的參數：`rcx ← -0x58`（`sub_4566` @ `0x4bbc` 的回傳值 = B varint）、
+`r8 ← rdi ← -0x78`（`0x4bc5` 初始化為 0，`0x4bfe` 由 varint decoder `sub_44bb` 填入 = C varint）。
+`sub_4566` 本身只是 `sub_44bb` 的 wrapper，B 也是純 varint。
+
+→ **閘門 `0x47f1 cmp -0x60,-0x68` 就是 `if (B != C)`，UAF 分支的觸發條件沒有變。**
+→ pc_agent 實測 A,B,C ∈ {0,1,2,0x40,0x7f} 都沒進分支，**原因應該在別處**，
+  最可能是**它當時用的 SELECT 查詢是無效的**（沒分號 + 含 `SELECT 1`），
+  所以根本沒看到 sys_imports 的真實輸出。
+→ **下一步：用正確查詢 `SELECT * FROM sys_imports;` 配 B != C 重測。**
 
 ### ⚠️ Q2：溢出旋鈕是 **alloc-size 欄位**，不是 payload 長度
 
