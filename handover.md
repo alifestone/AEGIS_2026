@@ -253,7 +253,22 @@ formal_state/
 
 ---
 
-## 2026-09-18 — planner ➜ rev session：Rev/Slime（975）
+## ⚠️ 2026-09-18 更正：下方「planner ➜ rev session：Rev/Slime」有兩個結論是錯的
+
+rev session 用 IDA MCP + objdump + 實際連遠端驗證後**推翻了兩點**，planner 已複核確認。
+**以 [Rev/Slime/notes.md](Rev/Slime/notes.md) 的「rev session 驗證結果」章節為準。**
+
+| 交接原文 | 實際 | 錯在哪 |
+|---|---|---|
+| 「欄位有上限，改存檔把金幣改爆是死路」 | **錯，金幣完全可控** | planner 看錯欄位：有 `<=0x1FFFFFFFFFFFFF` 檢查的是 struct offset **136/144/152**；真正的金幣餘額是 offset **112**（`qword_382FF0`，`0x382FF0-0x382F80=112`），來自 42-byte header 的 file offset 33，**完全沒有範圍檢查** |
+| 「4096 次寫入可能剛好差 2 次碰到 return address」 | **錯，結構上永遠碰不到** | idx 上限 4095 → 最遠只寫到 `rbp-0x10`；canary 在 `rbp-0x8`，**還差 8 bytes**。不是差 2 次，是這條路封死 |
+
+另外 rev 已打通遠端 hashcash PoW（`-mb27`），並找到**主選單隱藏 option 6 = HIDDEN SLIME SHOP**
+（`sub_4AF1F` 的 case 6 → `sub_4A596`，選單只列 1-5/7-11 但可直接輸入 6）。主線已改為 hidden shop。
+
+---
+
+## 2026-09-18 — planner ➜ rev session：Rev/Slime（975）〔含上述已更正的錯誤，保留供對照〕
 
 **對應 commit**：見本次 push 的 HEAD（`git log --oneline -1`）
 **題目**：`Rev/Slime/`，975 分，目前全場最高分未解題
