@@ -60,19 +60,42 @@
 - **可用 skill**：`offensive-crypto-attacks`
 
 ### nursery_melody
-- **狀態**：進行中（已抽出音符序列，編碼方式未解）
-- **進展／卡點**：
-  MP3 本身乾淨（無 ID3 夾帶、無 EOI 後綴資料、頻譜圖無隱藏圖像）。訊息在**音高**裡。
-  18.18 秒，解出 **58 個音符**，只用到 **7 個音高**（C4 D4 E4 F4 G4 A4 B4，單一八度 C 大調）。
-  音長幾乎一致（~0.232s 一拍，少數 0.45s 是樂句尾的長音），所以資料**不在節奏**。
-  音符序列：
+- **狀態**：進行中（音符序列已由 crypto session 獨立重驗，編碼方式未解）
+- **音符抽取（crypto session 重跑確認，修正前一版）**：
+  MP3 單聲道 44.1kHz、18.18 秒。以 STFT(n_fft=4096, hop=256) 取每 frame 主頻 → MIDI，
+  合併連續相同音高，得 **59 個音符**（前一版記 58，**末段少算一個 A**）。
+  正確序列（59）：
   ```
-  CGCCAECEBCGCABCEBAFCEBCFDAEAFCAGABCGCCFACAGCGFCEBCAECGACFB
+  CGCCAECEBCGCABCEBAFCEBCFDAEAFCAGABCGCCFACAGCGFCEBCAEACGACFB
   ```
-  出現次數：C×19 A×11 G×7 E×7 B×7 F×6 **D×1**（D 只出現一次很可疑）。
-  **已排除**：以 C 當分隔符（切出來長度不齊）、base-7 每 2/3 音一字（各種 offset 與音階順序）、
-  base-7 大整數轉 bytes、休止符當分隔（休止是樂句換氣不是資料）。
-- **下一步**：考慮 7 音對應 hex A-F + escape、或與某首知名兒歌原曲比對取「偏離音」。
+  次數：C×19 A×12 G×7 E×7 B×7 F×6 **D×1**。
+- **已驗證的新結構（重要）**：
+  1. **確認單音（monophonic）**：檢查多個 frame 的頻譜，每個 frame 只有一個基頻 + 其泛音
+     （263.8=C4 / 393=G4 / 441.4=A4 / 495.3=B4），**沒有和弦**，資料只能在旋律線上。
+  2. **音樂落在嚴格網格上**：一拍 ≈ 0.2265s，把音符與休止都量化後**剛好 80 格**，
+     每個休止恰為 2 格、每個長音恰為 2 格 —— 休止是**結構性**的，不是隨意換氣。
+     80 格盤面（`.`=休止格，`-`=前一音延長）：
+     ```
+     CGCCAEC-EBCGC..ABCEB..AFCEBCFD..AE..AFCAG..ABCGCCFAC-AG-CGFC-EB-CAE..A..CGAC-FB-
+     ```
+     休止切出的 8 個樂句長度：12, 5, 8, 2, 5, 20, 1, 6（**長度不齊，其中一句只有 1 個音**）。
+  3. 長音（0.447s，2 格）共 7 個，位置 idx 6,40,42,46,48,56,58 → 音為 C,C,G,C,B,C,B。
+- **本 session 已排除的方向（都實際跑過，不要重做）**：
+  - ❌ **base-7 全排列窮舉**：7 音 → 0..6 的 **5040 種排列** × 每 2/3 音一字 × 所有 offset
+    × ASCII 位移 0..99，全部掃過，**沒有任何結果含 "AEGIS"**。
+  - ❌ **已知兒歌比對**：與 Twinkle / Mary / London Bridge / Baa Baa / Row Row /
+    Itsy Bitsy / Hot Cross Buns / Old MacDonald / Yankee Doodle / ABC song 比對，
+    最長共同子字串只有 **3 個音** → **「nursery melody」是 flavor text，不是指某首原曲**。
+  - ❌ 去掉所有 C 後剩 40 音、以 base-6 每 2 音一字（6! 排列 × 多種字母表）→ 無結果。
+  - ❌ 音程（相對音高）差分 mod 7 → 每 2 音一字 → 無結果。
+  - ❌ 音長二元（長/短當 1/0，59 bits）、節奏二元（有音/無音，80 bits，正反both）
+    → 切 5/7/8 bits 皆非 ASCII。
+  - ❌ 音名直接當 hex（A-F，G 當跳過或分隔）→ 解出來全是 0x80 以上的 byte，非 ASCII。
+  - ❌ 以各單音當分隔符（C/D/E/F/G/A/B 逐一試）→ 切出的區塊長度都不齊。
+  - ❌（前一版已排除，本 session 未重做）MP3 容器層：無 ID3 夾帶、EOI 後無附加資料、
+    頻譜圖無隱藏圖像。
+- **下一步**：80 格網格 + 8 個不等長樂句是目前最強的未解結構；
+  考慮休止/長音當第 8 個符號（8 符號 = 3 bits）、或樂句長度本身就是 payload。
 - **Flag**：—
 - **可用 skill**：`offensive-crypto-attacks`
 
