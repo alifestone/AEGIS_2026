@@ -961,3 +961,54 @@ B: TI]vcH3o3=gH5uMI9snGhoosDDeznxTYryumoJAdvXZAxhxo
 
 48 個差異字元的**排序**仍未解。48 對 + 48 單張的對稱結構應該有意義，
 `misc` 正在查那 48 張單張是否為排序鑰匙。
+
+
+---
+
+## Pwn/arbitragedb — pc_agent 動態驗證（2026-09-18）
+
+全部 local-only（`ADB_NO_SECCOMP=1`），未碰遠端。完整內容見 handover.md 最上方區塊。
+
+### ★★ SELECT 語法：我們先前所有查詢都是無效的
+
+handler `0x67f8` 要求該行**同時**：以 `SELECT` 開頭 + **行內含字面 `;`**（否則 `ERR syntax`）。
+要觸發 sys_imports 印表器需含 `sys_imports`，且**不能含 `SELECT 1`**
+（`SELECT 1` 是捷徑 `0x5482`，只印假的 `ROW int:1` 蓋掉真資料）。
+
+**正確查詢：`SELECT * FROM sys_imports;`**
+`gen_poc.py` 的 `SELECT 1 FROM sys_imports
+` **兩點都踩雷**。
+⇒ 先前「leak 沒出現」的推論可能只是查詢根本沒執行，**不等於 leak 不存在**。
+
+### ❌ Q1：UAF「免費 heap leak」未重現 —— 推翻先前前提
+
+UAF code 確實存在（`0x47fb malloc(0x520)` … `0x4889 free(q)`），
+**但進入該分支的閘門是 `0x47f1: cmp [rbp-0x60],[rbp-0x68]`，這兩個 slot 不是 A/B/C varint。**
+實測 A,B,C ∈ {0,1,2,0x40,0x7f} 全走 inline 路徑，sys_imports 只印 `rec+0x30` 的
+inline sample（= `[C_byte, payload...]`，長度 `min(B,0x20)`），**從未出現 heap 指標**。
+
+→ **「送一個 B != C 的 IMPORT 就有免費 heap leak」目前不成立。**
+→ 下一步：用 IDA 解 `sub_4988` parser，找出 `"ADB1"+12` 這 0x10 header 裡
+  哪兩個欄位對應 `[rbp-0x60]`/`[rbp-0x68]`（pc_agent 一直填 0）。
+
+### ⚠️ Q2：溢出旋鈕是 **alloc-size 欄位**，不是 payload 長度
+
+- `gen_poc.py`（B=0、payload 0x2000）**不會 crash**
+- 真正 crash：**alloc-size 欄位 ≥ 0x80** → `malloc(): corrupted top size`、SIGABRT
+- 重現檔 `scratchpad/arb/crash.bin`
+
+### ✅ Q3：欄位對應確認，arbitrary-read 原理成立但非免費
+
+```
+ROW int:700001 str:3:74626c int:1 blob:<len>:<hex>
+batch_id rec[0x00] / table_name rec[0x08] / accepted_rows rec[0x20]
+blob = hex(rec[0x28] bytes, 來源 rec[0x50] ? rec[0x50] : rec+0x30)
+```
+控 `rec[0x50]`+`rec[0x28]` 讀任意位址原理成立，**但要先靠 overflow 蓋掉某筆記錄的
+`+0x50`/`+0x28`，是 step 2 不是免費的 step 1。**
+
+### 仍然成立（不受影響）
+
+`setcontext` 是 **rdx** 版（`setcontext+0x3d = 0x4bebd`，planner byte-level 複核過）、
+SROP sigframe 與 ucontext 偏移一致、FSOP 打 `0x129020`（stdout FILE*，在 RELRO 外且 16-byte 對齊）、
+libc 無 `pop rdx` 故走 SROP、seccomp allowlist（無 execve/mmap/mprotect，只能 ORW）。
