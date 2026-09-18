@@ -330,3 +330,70 @@ glibc 2.14+ 的 tcache：
    - **(備案) 蓋 return address**：需額外用 arbitrary read 撈 canary
 4. **ORW ROP / SROP**：`openat(-100,"/home/arbitragedb/flag",0,0)` → `read` → `write(1)`
    （`rt_sigreturn` 有開，SROP 可一次設好暫存器，在 gadget 不足時特別好用）
+
+---
+
+## 12. ORW chain 已建好（`rop.py`），關鍵發現：**libc 沒有 `pop rdx`**
+
+用題目附的 libc.so.6 掃 `.text`（vaddr `0x287c0`, size `0x197159`）：
+
+| gadget | offset | 狀況 |
+|---|---|---|
+| `syscall; ret` | `0x0a0be6`, `0x0a0c05`, `0xaca80` | ✓ |
+| `pop rdi; ret` | `0x11bc7a` | ✓ |
+| `pop rsi; ret` | `0x05c2e7` | ✓ |
+| `pop rax; ret` | `0x0e5dc7` | ✓ |
+| `ret` | `0x0289fe` | ✓ |
+| `mov rdx,rax; ret` | `0x146257` | ✓ |
+| **`pop rdx; ret`** | — | ❌ **完全找不到** |
+| `pop rdx; pop rbx/rsi/rcx/r12; ret` | — | ❌ 也都沒有 |
+
+**沒有 `pop rdx` ⇒ `read`/`write` 的第三個參數（長度）用純 ROP 很難設。**
+
+→ 所以 **主線改走 SROP**（`rt_sigreturn` = syscall 15，**已被 seccomp 允許**）：
+   一個 sigframe 就把 rax/rdi/rsi/rdx/rip/rsp 全部一次設好，完全不需要湊 gadget。
+   這也是為什麼出題者刻意在 seccomp 裡留 `rt_sigreturn` —— 應該就是預期解法。
+
+### 12.1 SROP frame 佈局（已在 `rop.py` 裡用 assert 自我驗證）
+
+rt_sigreturn 時 `rsp` 必須指向 **ucontext 起點**：
+
+```
++0x00 uc_flags   +0x08 uc_link   +0x10 uc_stack(24)
++0x28 起是 sigcontext：
+   +0x28 r8   +0x30 r9   +0x38 r10  +0x40 r11  +0x48 r12  +0x50 r13
+   +0x58 r14  +0x60 r15  +0x68 rdi  +0x70 rsi  +0x78 rbp  +0x80 rbx
+   +0x88 rdx  +0x90 rax  +0x98 rcx  +0xa0 rsp  +0xa8 rip  +0xb0 eflags
+   +0xb8 csgsfs(=0x33)   ...   +0xe0 fpstate(必須 0)
+有效長度 = 0xe8
+```
+
+⚠️ 我第一版寫成 0x100 是錯的（多塞了 __reserved 尾巴），
+`rop.py` 現在有 `assert SIGFRAME_OFF["rip"] == 0xa8` 等檢查防止再犯。
+
+### 12.2 chain 大小
+
+- 單個 SROP frame = `pop rax;15`(16) + `syscall`(8) + sigframe(0xe8) = **0x100**
+- ORW 三步（openat → read → write）= **0x300 bytes**
+- heap overflow 可寫約 0x1fe8 → **空間綽綽有餘** ✓
+
+### 12.3 libc 函式 offset（dynsym 實測值）
+
+```
+openat  0x127c50    read  0x128310    write  0x128dd0
+syscall 0x134c70    environ 0x219de8   ← environ 可拿 stack leak
+_IO_file_jumps  0x211030      _IO_wfile_jumps  0x211228
+```
+
+`__io_vtables` 合法區間約 `0x211030`–`0x2116c0`（planner 從 stride 推導，
+`_IO_file_jumps` / `_IO_wfile_jumps` 是 dynsym 實測值可直接用）
+→ **FSOP 成立**，`_IO_wfile_jumps` 可安全指過去。
+
+### 12.4 還需要的一塊：把 chain 放到哪、怎麼轉進去
+
+SROP 需要 `rsp` 指到我們的 frame。兩個候選：
+1. FSOP 觸發時若能控到 `rsp`（某些 `_IO_wfile_jumps` 手法可做 stack pivot）
+2. 或先用 `environ`（`0x219de8`）arbitrary read 拿 stack 位址，
+   再用 overflow 蓋 return address（但需 canary leak）
+
+→ 這一步**必須動態驗證**，是目前唯一還沒收斂的環節。
