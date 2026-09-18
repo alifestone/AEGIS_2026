@@ -20,7 +20,7 @@
 | 3 | extraction-1 | CyCraft | 卡關（等 Team Token） | — |
 | 4 | injection-1 | CyCraft | 卡關（等 Team Token） | — |
 | 5 | False_Continuity | Misc | 進行中 | — |
-| 6 | Jurassic_Time_Capsule | Misc | 未開始 | — |
+| 6 | Jurassic_Time_Capsule | Misc | 進行中 | — |
 | 7 | Travel_1 | Misc | 進行中 | — |
 | 8 | Travel_2 | Misc | 進行中 | — |
 | 9 | arbitragedb | Pwn | 進行中 | 找到 heap overflow (sub_4604)，seccomp 只允許 ORW |
@@ -92,8 +92,19 @@
     → 切 5/7/8 bits 皆非 ASCII。
   - ❌ 音名直接當 hex（A-F，G 當跳過或分隔）→ 解出來全是 0x80 以上的 byte，非 ASCII。
   - ❌ 以各單音當分隔符（C/D/E/F/G/A/B 逐一試）→ 切出的區塊長度都不齊。
-  - ❌（前一版已排除，本 session 未重做）MP3 容器層：無 ID3 夾帶、EOI 後無附加資料、
-    頻譜圖無隱藏圖像。
+  - ❌ **MP3 容器層（本 session 重驗）**：`file` 確認 ID3v2.4 + MPEG layer III、56kbps、
+    **Monaural（真單聲道，沒有雙聲道相位藏資料的可能）**；檔頭 Lavf61.7.103 / LAME，
+    檔尾是正常 MP3 padding（`aa` 填充），**EOI 後無附加資料**。
+  - ❌ **頻譜圖（本 session 重驗）**：以 n_fft=1024/2048/4096/8192 多種解析度算 STFT 並輸出
+    PNG 目視檢查，**只有旋律線與其泛音，沒有任何隱藏圖像或文字**。
+  - ❌ **確認 monophonic**：逐 frame 檢查頻譜峰值，每個 frame 只有一個基頻 + 泛音列，
+    **無和弦、無第二聲部**。
+  - ❌ **音高只有 7 個且無變化音**：以拋物線內插精算基頻，MIDI 落在 59.7~71.0，
+    量化後只有 {60,62,64,65,67,69,71} = C D E F G A B，**無升降記號、無跨八度**。
+  - ❌ 二元切分窮舉：把 7 個音分成「0 組 / 1 組」的所有 2^7 分法 × 8 種 bit offset
+    → 解成 bytes，**沒有任何一組可讀 ASCII**。
+  - ❌ base-7 每 2 音一字 × 5040 種排列 × 多種 flag 字母表（a-z0-9_ 等）→ 全是亂碼。
+  - ❌ 大整數：整段當 base-7 大數轉 bytes（4 種音階順序 × 正反）→ 非 ASCII。
 - **下一步**：80 格網格 + 8 個不等長樂句是目前最強的未解結構；
   考慮休止/長音當第 8 個符號（8 符號 = 3 bits）、或樂句長度本身就是 payload。
 - **Flag**：—
@@ -345,3 +356,52 @@
 | — | — | — | — | — |
 
 > 委派格式提醒：題目路徑 / 輸入檔位置 / 完整指令或腳本 / 預期輸出格式與時限。
+
+
+---
+
+## Planner 協調紀錄（2026-09-18）
+
+### Session 分工現況
+
+| Session | 範圍 | 分數 | 狀態 |
+|---|---|---|---|
+| `rev` | Slime 975 / AI_Challenge 936 / aegis_asterism 600 | 2511 | 進行中，Slime 已打通遠端 PoW |
+| `misc` | False_Continuity 804 | 804 | 進行中，主攻排序 |
+| `pwn_agent` | arbitragedb 711 | 711 | 進行中，靜態分析完成 |
+| `cycraft_agent` | extraction-1 / injection-1（**卡 token**）＋ 暫接 OSINT 三題 | 500 | OSINT 進行中 |
+| `crypto` | nursery_melody 100 | 100 | 進行中 |
+| `pc_agent` | **Linux 環境 + 重運算**，所有 session 共用 | — | 可用（Remote Control peer） |
+| planner（`aegis-2026-b2`） | 規劃統整、跨題協調、修正錯誤前提 | — | — |
+
+### ⚠️ 已被推翻的 planner 交接結論（引以為戒）
+
+planner 在 fan out 時寫進 handover.md 的結論，有 **4 條被下游 session 用更嚴謹的方法推翻**。
+這些都已在對應文件標註更正。**接手任何交接前請先看有沒有「已更正」標記。**
+
+| 題目 | planner 原本說 | 實際 | 推翻者 |
+|---|---|---|---|
+| Slime | 「欄位有上限，改金幣是死路」 | **錯**，金幣在 offset **112**，完全無範圍檢查（有檢查的是 136/144/152） | `rev` |
+| Slime | 「4096 次寫入差 2 次可蓋 return address」 | **錯**，最遠只到 `rbp-0x10`，離 canary 差 8 bytes，**結構上碰不到** | `rev` |
+| False_Continuity | 「144 張 = 72 組重複對，payload 382 字元」 | **錯**，是 **45~46 對 + 52~54 張真單張**，payload 約 **536~544** 字元 | `misc` |
+| False_Continuity | 「配不出對的是碎片太小訊號不足」 | **錯且方向相反**，單張組平均 37.0 glyph > 有對組 35.0 | `misc` |
+
+planner 已對前兩條（金幣 offset 算術、溢位可達範圍）與後兩條（配對一致率 gap、
+glyph 數分布）獨立複核，確認推翻正確。
+
+### 跨題重要情報
+
+**arbitragedb 的 seccomp allowlist 改變了解題形態**（由 `pwn_agent` 解出）：
+只允許 `read/write/close/fstat/lseek/brk/rt_sigreturn/exit/exit_group/openat/newfstatat`，
+**沒有 execve、沒有 mmap/mprotect**。題敘寫「RCE」但實際只能做 **ORW ROP chain** 讀 flag，
+拿不到 shell 也不能跳 shellcode。且只有 `openat` 沒有 `open`，
+要用 `openat(AT_FDCWD=-100, path, O_RDONLY, 0)`。本地測試可設 `ADB_NO_SECCOMP=1` 關掉。
+
+**Slime 主線已改為 hidden shop**（由 `rev` 發現）：
+主選單 `sub_4AF1F` 的 **case 6 = HIDDEN SLIME SHOP**（`sub_4A596`），
+選單只列 1-5/7-11 但可直接輸入 6。遠端需先過 hashcash PoW（`-mb27`，16 核約 15~60 秒）。
+
+**CyCraft 兩題卡在 Team Token**（由 `cycraft_agent` 確認）：
+token 不在 repo 也不在 README 快照，已列為急件請使用者去 CTFd 撈。
+⚠️ 平台 quota **用完不會補**（`quota does not refill`），拿到 token 後不能亂槍打鳥。
+好消息：無效 token 在 auth 層就被 400 擋掉、**不消耗 quota**，可以安全驗證 token 對不對。
