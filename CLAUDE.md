@@ -150,11 +150,15 @@ endpoint 範圍內，不要掃到 CTFd 平台本身或任何非題目主機。
 
 | Session | 職責 | 說明 |
 |---|---|---|
-| **planner**（本 session） | 規劃、非 Rev 題目、統整進度 | 負責 Misc / Crypto / CyCraft / Pwn 的分析，維護 status.md 與 requirement.md，決定優先順序與分派任務 |
-| **rev session** | **所有 Rev 題目** | Rev/Slime、Rev/AI_Challenge、Rev/aegis_asterism 一律交給它。IDA Pro MCP 由它使用 |
-| **pc_agent** | **Linux 環境 + 重運算** | pc_agent 跑在 **Linux**，可直接執行題目附件的 ELF、做動態分析；也負責 GPU／長時間爆破 |
+| **planner**（`aegis-2026-b2`） | 規劃、統整進度、跨題協調 | 維護 status.md / requirement.md / handover.md，決定優先順序與分派任務。**不直接解題** |
+| **`rev`** | **所有 Rev 題目** | Slime(975) / AI_Challenge(936) / aegis_asterism(600)。IDA Pro MCP 由它使用 |
+| **`misc`** | **所有 Misc 題目** | False_Continuity(804) / Travel_1 / Travel_2 / Jurassic_Time_Capsule |
+| **`pwn_agent`** | **所有 Pwn 題目** | arbitragedb(711) |
+| **`crypto`** | **所有 Crypto 題目** | nursery_melody(100)。baby(100) 已解 |
+| **`cycraft_agent`** | **所有 CyCraft 題目** | extraction-1(100) / injection-1(100) |
+| **`pc_agent`** | **Linux 環境 + 重運算** | 跑在 **Linux**，可直接執行附件的 ELF、gdb、動態分析；也負責 GPU／長時間爆破。**所有 session 都可以找它** |
 
-**Rev 題目一律交給 rev session，planner 不直接動手做 Rev 的逆向。**
+**每個分類交給對應的 session，planner 不直接動手解題。**
 **需要 Linux 環境的工作（執行 ELF、動態分析、gdb、strace、Docker）一律找 pc_agent。**
 本機是 Windows，附件的 Linux x86-64 ELF **無法直接執行**。
 
