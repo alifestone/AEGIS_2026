@@ -372,3 +372,26 @@ HTTP 401  {"code":"INVALID_TEAM_TOKEN","error":"invalid or missing team token"}
 
 payload 都已經排好優先序寫在 [CyCraft/notes.md](CyCraft/notes.md)，
 **拿到正確 token 我可以立刻開打**。在那之前我先去做 Misc 的 OSINT 三題。
+
+---
+
+## ✅ 7. CyCraft 兩題已全解（token 正確，感謝）
+
+- **時間**：2026-09-18
+- **狀態**：✅ 已完成，**不需要你再做任何事**
+
+你第二次給的 token `aegis-1000b5c9-...` 是正確的（第一個 `ctfd_` 開頭的那個不是）。
+
+兩題都已拿到 flag，**已提交前請注意格式**：
+
+- **injection-1**：`AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}`
+- **extraction-1**：`AEGIS{26a27e4ce094beb91e1c0268fa0ce35ecc63691107cd98495e0351e5af6b2aee}`
+
+### 想請你做的事
+
+**到 CTFd 提交這兩個 flag**，並回報是否通過（詳細解法已寫進 status.md 的 CyCraft 段落）。
+
+共消耗 8 次 quota（injection 3 發、extraction 5 發），剩餘次數未知但兩題都已解完，
+**不會再動用這兩個 endpoint**。
+
+（第 4、6 項的 token 請求就此結案。）
