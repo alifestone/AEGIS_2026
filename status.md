@@ -21,7 +21,7 @@
 | 4 | injection-1 | CyCraft | ✅ 已解 | `AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}` |
 | 5 | False_Continuity | Misc | 進行中 | — |
 | 6 | Jurassic_Time_Capsule | Misc | 進行中（確認在台灣） | — |
-| 7 | Travel_1 | Misc | 🟡 高信心待提交 | `AEGIS{3R9C+2R}` |
+| 7 | Travel_1 | Misc | ✅ **已解**（隊友解出並提交） | `AEGIS{3R9C+2R}`（我方推導值，待與隊友答案核對） |
 | 8 | Travel_2 | Misc | 進行中 | — |
 | 9 | arbitragedb | Pwn | 進行中 | 找到 heap overflow (sub_4604)，seccomp 只允許 ORW |
 | 10 | AI_Challenge | Rev | 未開始 | — |
@@ -433,7 +433,11 @@ python -c "from PIL import Image; print(Image.open(f).getexif())"  # -> False
 - **可用 skill**：`offensive-osint`
 
 ### Travel_1
-- **狀態**：🟡 **高信心待提交**
+- **狀態**：✅ **已解 —— 由團隊其他成員（非本 agent 團隊）解出並提交**
+  （2026-09-18 使用者告知）。本題**不需要再投入人力**。
+- **我方推導結果**：`AEGIS{3R9C+2R}`（下方推理鏈保留，供核對用）
+  ⚠️ 尚未與隊友的實際答案核對。**如果兩者不同，表示我方推理鏈有誤**，
+  那對 Travel_2 / Jurassic 這兩題同樣是 OSINT 的題目有參考價值，值得回頭檢討。
 - **答案**：餐廳 = **Kabuki Japanese Restaurant**（Town Square Las Vegas）
   地址 6605 S Las Vegas Blvd, Ste 147, Las Vegas, NV 89119
   座標 `36.0675472, -115.1779391`（OSM node `2746816466`）

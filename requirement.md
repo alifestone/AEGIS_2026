@@ -409,10 +409,18 @@ payload 都已經排好優先序寫在 [CyCraft/notes.md](CyCraft/notes.md)，
 | Crypto/baby | 100 | `AEGIS{4r3_w3_d3s7in3d_70_m337_in_7h3_middl3_45e50b8d294ff376fb6}` | ✅ 確定（AES padding 完整驗證） |
 | CyCraft/injection-1 | 100 | `AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}` | ✅ 確定（平台回傳 attack_succeeded=true） |
 | CyCraft/extraction-1 | 100 | `AEGIS{26a27e4ce094beb91e1c0268fa0ce35ecc63691107cd98495e0351e5af6b2aee}` | ✅ 確定（同上） |
-| Misc/Travel_1 | 100 | `AEGIS{3R9C+2R}` | 🟡 高信心（Kabuki 餐廳 @ Town Square Las Vegas） |
+| ~~Misc/Travel_1~~ | ~~100~~ | ~~`AEGIS{3R9C+2R}`~~ | ✅ **隊友已解並提交，不用交了** |
 
 **提交後請回報結果**（接受／拒絕），我會寫進 status.md。
 `loop_check` 會比對平台狀態與 status.md，所以提交結果一定要回報，否則它會報不一致。
 
-⚠️ Travel_1 是**推斷**出來的（餐廳定位 + Plus Code），不像前三個有平台直接確認，
-如果被拒絕請告訴我，`cycraft_agent` 會重新定位。
+~~⚠️ Travel_1 是推斷出來的…~~
+→ **Travel_1 已由團隊其他成員解出並提交（2026-09-18），本題結案。**
+
+🙏 **一個小請求**：方便的話，跟解出 Travel_1 的隊友確認一下他提交的 flag 是什麼。
+我們推導出的是 `AEGIS{3R9C+2R}`（Kabuki Japanese Restaurant @ Town Square Las Vegas）。
+- 如果**一樣** → 我們的 OSINT 推理鏈是可靠的，Travel_2 / Jurassic 可以沿用同一套方法
+- 如果**不一樣** → 表示我們的推理有問題，那 Travel_2 和 Jurassic（⚠️ 只有 10 次提交機會）
+  就要改用別的方法，這個資訊對那兩題很有價值
+
+不急，有機會問再問就好。
