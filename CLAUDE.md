@@ -156,7 +156,27 @@ endpoint 範圍內，不要掃到 CTFd 平台本身或任何非題目主機。
 | **`pwn_agent`** | **所有 Pwn 題目** | arbitragedb(711) |
 | **`crypto`** | **所有 Crypto 題目** | nursery_melody(100)。baby(100) 已解 |
 | **`cycraft_agent`** | **所有 CyCraft 題目** | extraction-1(100) / injection-1(100) |
-| **`pc_agent`** | **Linux 環境 + 重運算** | 跑在 **Linux**，可直接執行附件的 ELF、gdb、動態分析；也負責 GPU／長時間爆破。**所有 session 都可以找它** |
+| **`pc_agent`** | **Linux 環境 + 重運算** | 跑在 **Linux**，可直接執行附件的 ELF、gdb、動態分析；也負責 GPU／長時間爆破。⚠️ **不是每個 session 都連得到它**，見下方「pc_agent 轉送」 |
+| **`loop_check`** | **監控 CTFd** | 每 10 分鐘檢查 https://aegis2026.ctfd.io/challenges ：有沒有**新增題目**、以及**平台上的已解狀態**是否與 status.md 一致 |
+
+### ⚠️ pc_agent 轉送（實測限制）
+
+`pc_agent` 是 **Remote Control** 類型 peer，**連線疑似綁在 planner session 上**：
+
+- planner（`aegis-2026-b2`）：`ListAgents` 看得到、`SendMessage` 送得到
+- 其他 session（實測 `pwn_agent`）：`ListAgents` **完全沒有 Remote Control 的 row**，
+  直接送會得到 `No agent named 'pc_agent' is reachable.`
+
+**所以：要委派 pc_agent 的任務，一律先送給 planner，由 planner 代為轉送。**
+委派前記得 `git push`，訊息要寫清楚 commit hash + 檔案路徑 + 完整指令（它只能透過 GitHub 同步）。
+
+### loop_check 與 status.md 的關係
+
+`loop_check` 會拿 CTFd 平台上的實際狀態來比對 status.md。所以：
+
+- **拿到 flag 一定要立刻寫進 status.md 並 push**，否則 loop_check 會報「平台已解但 status 沒記」
+- **提交 flag 後要回報結果**（接受／拒絕），status.md 要反映真實提交狀態
+- 如果 loop_check 回報**有新題目上架**，planner 負責分派給對應分類的 session
 
 **每個分類交給對應的 session，planner 不直接動手解題。**
 **需要 Linux 環境的工作（執行 ELF、動態分析、gdb、strace、Docker）一律找 pc_agent。**
