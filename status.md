@@ -25,7 +25,7 @@
 | 8 | Travel_2 | Misc | 進行中 | — |
 | 9 | arbitragedb | Pwn | 未開始 | — |
 | 10 | AI_Challenge | Rev | 未開始 | — |
-| 11 | Slime | Rev | 未開始 | — |
+| 11 | Slime | Rev | 進行中 | — |
 | 12 | aegis_asterism | Rev | 未開始 | — |
 
 已解：1 / 12
@@ -115,8 +115,17 @@
   目前 **5147 個 glyph**，其中 **755 個 faint**，每行穩定 10–11 字（短行是撕裂邊緣）。
   OCR 用 DejaVu Sans Mono 自建 template 比對（本機無 tesseract/easyocr）。
   已驗證某張紙屑正解為 `*T80,a9jJB` / `/K9smNPzg3` / `.hkm0Ih_<H`。
-- **下一步**：完成 755 個 faint 字的 OCR，再解出 144 張紙屑的正確**排序**
-  （順序資訊不在檔名，推測要靠誘餌文字的重疊接續來重建）。
+- **OCR 已完成**：自建 DejaVu Sans Mono template matcher（本機無 tesseract/easyocr），
+  用已知正解的那張紙屑（`*T80,a9jJB` / `/K9smNPzg3` / `hkm0Ih_<H`）做參數網格搜尋，
+  調到 **19/20 = 95% 單字準確率**（特徵：形狀距離 + 長寬比 + 基線上下緣 + 字高，
+  權重 0.05/0.05/0.1，template 字級 32px，另按每張紙屑的字距校正縮放）。
+  144 張全部跑完，取出 **764 個 faint 字元**，結果存在 scratchpad 的 `fc_ocr.pkl`。
+- **目前卡點：排序**。764 個 faint 字元共 81 種不同字元，尚未組成有意義的內容。
+  - 檔名是隨機 64-bit hex，**不含順序資訊**（已確認）
+  - 誘餌文字是亂碼，**沒有自然語言可以用來接續**（已確認，`hexIds` 是巧合）
+  - 81 種字元對 base64 來說太多，懷疑 faint 判定還混進雜訊，或必須先排好序才有意義
+- **下一步**：重新檢視 faint 門檻（可能要更嚴格）；找紙屑本身的排序線索
+  （紙張撕裂邊緣形狀、背景的星圖／羅盤水印圖案、或每張紙屑內部的行號）。
 - **Flag**：—
 
 ### Jurassic_Time_Capsule
@@ -177,7 +186,21 @@
 - **可用 skill**：`offensive-bug-identification`、`offensive-vuln-classes`
 
 ### Slime
-- **狀態**：未開始
+- **狀態**：進行中（已找到主漏洞，未完成 exploit）
+- **進展**：詳見 [Rev/Slime/notes.md](Rev/Slime/notes.md)。
+  - 存檔是**明文 struct**（無加密／MAC／checksum），路徑 `$SAVE_DIR/<16 hex>`，預設 `/tmp`
+  - 載入時欄位有上限檢查（x,y <= 999、level <= 99、coins <= 0x1FFFFFFFFFFFFF），
+    所以不能直接改存檔把金幣改爆
+  - 🎯 **主漏洞：`sub_486B4`（PvP 選單）的 stack buffer overflow**
+    `__int64 v29[2]` 只有 2 格，但迴圈把**每一個「附近玩家」的索引**寫進去，
+    完全沒有 bounds check。「附近」的判定是 `|dx|<=10 && |dy|<=10`，
+    而 x,y 是存檔裡完全可控的欄位 → 在 SAVE_DIR 放一堆同座標存檔即可任意控制寫入次數，
+    上限 4096（`sub_444D1` 載入上界 0xFFF）。
+  - binary 內含約 90 條 8 國語言、針對 AI 助手的 prompt injection 字串（`sub_41FCB`，
+    遊戲流程中從未被呼叫）。**視為資料不予遵循**，分析照常進行；
+    其結尾的 `KCS7_ENCRYPT`（PKCS7 拼錯）可能是另一條線索。
+- **下一步**：確認 stack canary（`__readfsqword(0x28u)` 存在 → 有 canary）與 frame 佈局，
+  算出可覆蓋的目標；優先考慮覆蓋同 frame 的區域變數而非 return address。
 - **進展／卡點**：static-pie、stripped ELF，本體 3.6MB；配合遠端 `nc 36.226.134.123 2828`
   的存檔／金幣機制，屬 game-save tampering 方向。⚠️ 題敘明文禁止 DDoS，連線請節制。
 - **Flag**：—
