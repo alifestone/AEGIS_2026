@@ -128,3 +128,53 @@ Slime 是 3.6MB 的 static-pie binary，把 libc 整包靜態連進來，
 ⚠️ 注意 `misc` 和 `pwn_agent` 兩個 session 你也開了但還沒指派任務。
 如果你打算讓它們接手 Misc / Pwn，跟我說一聲，我把對應題目也寫成 handover 交接出去，
 避免我和它們重複做同一題。
+
+---
+
+## ⏳ 4. CyCraft 兩題需要「Team Token」才能提交（**目前完全卡住**）
+
+- **時間**：2026-09-18
+- **題目**：`CyCraft/extraction-1`（100）、`CyCraft/injection-1`（100）
+- **狀態**：⏳ 等待使用者提供 Team Token
+
+### 問題
+
+這兩題的網頁介面上方有一個 **Team Token** 欄位，送出攻擊時會一起送到 `/api/submit`。
+沒有 token 就完全無法測試，實測回應：
+
+```bash
+$ curl -X POST "https://aegis2026-ai-7577bf11-...-q1.chals.io/api/submit" \
+    -H "Content-Type: application/json" -d '{"user_input":"hi","team_token":""}'
+HTTP/1.1 400 BAD REQUEST
+{"code":"INVALID_TEAM_TOKEN","error":"Enter your team token above first"}
+```
+
+Token 不在 repo 裡（已 grep 過），也不在題目 README，**只有你拿得到**。
+
+### 想請你做的事
+
+到 CTFd（https://aegis2026.ctfd.io/）找出本隊的 **Team Token**，貼給我或寫在這裡。
+
+可能的位置：
+- CTFd 的個人／隊伍設定頁（Settings → Access Tokens）
+- 題目頁面 extraction-1 / injection-1 的題敘內文（網頁版可能有附件或說明文字，
+  而我們 repo 裡的 README 只抓到圖片，可能漏抓了文字）
+- 比賽公告 / Discord 置頂
+
+**請優先確認題目頁面本身**——很可能題敘裡就寫了 token 或取得方式，
+只是我們 repo 的 README 快照只存了那張 `cycraft_partner.jpg` 沒存到文字。
+
+### ⚠️ 為什麼這件事很急、也要小心
+
+前端程式碼裡有這段錯誤處理：
+
+```js
+QUOTA_EXCEEDED:'Team quota exhausted — no more evaluations (quota does not refill).'
+```
+
+**這兩題的提交次數有上限，而且用完不會補**（quota does not refill）。
+所以我不會拿到 token 就亂試，會先把 payload 想清楚、排好優先順序再一發一發打。
+
+也請你確認一下：CTFd 題目頁面有沒有寫**總共可以打幾次**？
+如果有次數上限的明確數字，告訴我，我會據此決定要準備幾發 payload。
+
