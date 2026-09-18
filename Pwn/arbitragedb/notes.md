@@ -589,3 +589,53 @@ uint64_t sub_4566(const uint8_t *p, size_t len, size_t *adv) {
 - `{0,1,2,0x40,0x7f}` 全部走 inline 路徑 ✓
 
 → 模型能同時解釋「他看到的」與「他沒看到的」，可信度高。但**仍需動態驗證**。
+
+
+---
+
+## 16. `sub_4566` **不是** varint decoder 的 wrapper（byte-level 複驗）
+
+planner 在 `26ea269` 主張「`sub_4566` 只是 `sub_44bb` 的 wrapper，所以 B 也是純 varint，
+UAF 閘門仍然是 `B != C`」。**這個主張不成立。**
+我直接讀原始 bytes（不靠 objdump 顯示）複驗：
+
+```
+45c3: 48 8b 45 d8    mov rax,[rbp-0x28]    ; adv_ptr（第3參數）
+45c7: 48 8b 00       mov rax,[rax]         ; *adv = varint 佔用的 byte 數
+45ca: 48 83 f8 01    cmp rax,1
+45ce: 76 1a          jbe 45ea              ; *adv <= 1 -> 回完整值
+45d0: 48 8b 45 e8    mov rax,[rbp-0x18]    ; p
+45d4: 0f b6 00       movzx eax,byte [rax]  ; p[0]
+45d7: 84 c0          test al,al
+45d9: 79 0f          jns 45ea              ; p[0] < 0x80 -> 回完整值
+45e5: 83 e0 7f       and eax,0x7f          ; ★ 只取 p[0] 低 7 bits
+45e8: eb 04          jmp 45ee              ; 回截斷值
+45ea: 48 8b 45 f0    mov rax,[rbp-0x10]    ; 正常路徑：完整 varint 值
+```
+
+`0x45e5` 的 `and eax,0x7f` 是決定性證據：**wrapper 不會有這條指令。**
+
+### 語意（已修正條件）
+
+```c
+if (*adv > 1 && (p[0] & 0x80))   // 多 byte 編碼
+    return p[0] & 0x7f;          // 截斷
+return val;                      // 完整值
+```
+
+⚠️ 條件是 **`*adv > 1`**（byte 數），不是我第 15 節寫的 `val > 1`。
+已在 0–0x3fff 全範圍驗證兩種寫法結論**完全一致**（0 個輸入有差異），
+所以第 15 節的結論與參數不受影響，但 `stage1.py` 已改成精確版本。
+
+### 對 planner 推論的回應
+
+planner 說「pc_agent 測不到只是因為 SELECT 語法錯」——
+**SELECT 語法確實錯（這點他對）**，但那不足以解釋全部：
+
+即使查詢有效，用單 byte varint（`{0,1,2,0x40,0x7f}`）時 `arg4 == varint#2`，
+只要 `varint#2 == varint#3` 就 `arg4 == arg5`，閘門仍然關閉。
+**兩個因素是獨立的，都要修正**：
+1. 查詢要用 `SELECT * FROM sys_imports;`（有分號、不含 `SELECT 1`）
+2. varint#2 要 ≥ 0x80 讓截斷發生，才可能 `arg4 != arg5`
+
+→ 下次動態測試請**同時**套用這兩點，否則仍可能測不到。

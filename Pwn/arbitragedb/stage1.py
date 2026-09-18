@@ -40,13 +40,13 @@ def _dec(buf):
 def _s4566(buf):
     """
     sub_4566 —— ★ 關鍵：多 byte varint 時只回首 byte 的低 7 bits
-      if val > 1 and (buf[0] & 0x80): return buf[0] & 0x7f
+      if adv > 1 and (buf[0] & 0x80): return buf[0] & 0x7f
     off 前進量仍是完整 byte 數（與截斷無關）。
     """
     val, adv = _dec(buf)
     if val is None:
         return 0, 0
-    if val > 1 and (buf[0] & 0x80):
+    if adv > 1 and (buf[0] & 0x80):
         return buf[0] & 0x7F, adv
     return val, adv
 
