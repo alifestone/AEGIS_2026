@@ -13,11 +13,11 @@
 
 ---
 
-## 🔴 2. IDA Pro MCP 的 decompile/disassemble 會 timeout
+## ✅ 2. IDA Pro MCP 的 decompile/disassemble 會 timeout
 
 - **時間**：2026-09-18
 - **題目**：Rev/Slime（975 分，目前最高分題）
-- **狀態**：🔴 待處理
+- **狀態**：✅ 已解決（重新開啟後可正常反編譯，不需再調整）
 
 **問題**：
 `mcp__ida-pro-mcp__decompile_function` 與 `disassemble_function` 都固定在 **1 秒** 後 timeout：
