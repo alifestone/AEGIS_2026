@@ -28,7 +28,18 @@
 | 11 | Slime | Rev | 進行中 | — |
 | 12 | aegis_asterism | Rev | 未開始 | — |
 
-已解：**3 / 12**（baby 100 + extraction-1 100 + injection-1 100 = 300 分）
+已解：**5 / 12 = 500 分**
+
+| 題目 | 分數 | 來源 |
+|---|---|---|
+| Crypto/baby | 100 | 本 agent 團隊（planner 推導 + pc_agent 爆破） |
+| CyCraft/extraction-1 | 100 | 本 agent 團隊（cycraft_agent） |
+| CyCraft/injection-1 | 100 | 本 agent 團隊（cycraft_agent） |
+| Misc/Jurassic_Time_Capsule | 100 | 使用者直接提供答案（提交 1/10，9 次未用） |
+| Misc/Travel_1 | 100 | 團隊其他成員解出並提交 |
+
+剩餘 7 題：False_Continuity 804 / Slime 975 / AI_Challenge 936 / arbitragedb 711 /
+aegis_asterism 600 / Travel_2 100 / nursery_melody 100 = **4226 分**
 
 ---
 
