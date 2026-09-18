@@ -7,24 +7,26 @@ FLAG 形式為：AEGIS{printable_ascii+}
 
 # Challenge
 
-共 12 題，依 category 分資料夾存放，每題一個子資料夾（含附件與該題的 README.md）。
+共 14 題，依 category 分資料夾存放，每題一個子資料夾（含附件與該題的 README.md）。
 
 ## Overview
 
-| Category | Challenge | Points | Solves | Folder |
-|---|---|---|---|---|
-| Rev | aegis_asterism | 600 | 21 | [Rev/aegis_asterism/](Rev/aegis_asterism/) |
-| Rev | AI Challenge | 936 | 9 | [Rev/AI_Challenge/](Rev/AI_Challenge/) |
-| Rev | Slime | 975 | 6 | [Rev/Slime/](Rev/Slime/) |
-| Misc | Travel 1 | 100 | 50 | [Misc/Travel_1/](Misc/Travel_1/) |
-| Misc | Travel 2 | 100 | 45 | [Misc/Travel_2/](Misc/Travel_2/) |
-| Misc | Jurassic Time Capsule | 100 | 48 | [Misc/Jurassic_Time_Capsule/](Misc/Jurassic_Time_Capsule/) |
-| Misc | False Continuity | 804 | 15 | [Misc/False_Continuity/](Misc/False_Continuity/) |
-| Pwn | arbitragedb | 711 | 18 | [Pwn/arbitragedb/](Pwn/arbitragedb/) |
-| Crypto | nursery melody | 100 | 32 | [Crypto/nursery_melody/](Crypto/nursery_melody/) |
-| Crypto | baby | 100 | 38 | [Crypto/baby/](Crypto/baby/) |
-| CyCraft | extraction-1 | 100 | 53 | [CyCraft/extraction-1/](CyCraft/extraction-1/) |
-| CyCraft | injection-1 | 100 | 51 | [CyCraft/injection-1/](CyCraft/injection-1/) |
+| Category | Challenge | Points | Solves | Folder | Status |
+|---|---|---|---|---|---|
+| CyCraft | extraction-1 | 100 | 54 | [CyCraft/extraction-1/](CyCraft/extraction-1/) | ✅ Solved |
+| CyCraft | extraction-2 | 100 | 52 | [CyCraft/extraction-2/](CyCraft/extraction-2/) | — |
+| CyCraft | injection-1 | 100 | 52 | [CyCraft/injection-1/](CyCraft/injection-1/) | ✅ Solved |
+| CyCraft | injection-2 | 100 | 51 | [CyCraft/injection-2/](CyCraft/injection-2/) | — |
+| Misc | Travel 1 | 100 | 51 | [Misc/Travel_1/](Misc/Travel_1/) | ✅ Solved |
+| Misc | Travel 2 | 100 | 45 | [Misc/Travel_2/](Misc/Travel_2/) | — |
+| Misc | Jurassic Time Capsule | 100 | 49 | [Misc/Jurassic_Time_Capsule/](Misc/Jurassic_Time_Capsule/) | ✅ Solved |
+| Misc | False Continuity | 600 | 21 | [Misc/False_Continuity/](Misc/False_Continuity/) | — |
+| Rev | AI Challenge | 831 | 14 | [Rev/AI_Challenge/](Rev/AI_Challenge/) | — |
+| Rev | Slime | 804 | 15 | [Rev/Slime/](Rev/Slime/) | — |
+| Rev | aegis_asterism | 324 | 27 | [Rev/aegis_asterism/](Rev/aegis_asterism/) | — |
+| Pwn | arbitragedb | 375 | 26 | [Pwn/arbitragedb/](Pwn/arbitragedb/) | — |
+| Crypto | baby | 100 | 45 | [Crypto/baby/](Crypto/baby/) | ✅ Solved |
+| Crypto | nursery melody | 100 | 37 | [Crypto/nursery_melody/](Crypto/nursery_melody/) | — |
 
 ## Rev
 

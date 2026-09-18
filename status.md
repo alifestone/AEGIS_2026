@@ -13,22 +13,26 @@
 
 ## 總覽
 
+⚠️ **2026-09-18 CTFd 驗證同步：新增 2 題 CyCraft、積分調整、確認 5 題已解**
+
 | # | 題目 | 分類 | 狀態 | Flag |
 |---|------|------|------|------|
-| 1 | baby | Crypto | **已解** | `AEGIS{4r3_w3_d3s7in3d_70_m337_in_7h3_middl3_45e50b8d294ff376fb6}` |
-| 2 | nursery_melody | Crypto | 進行中 | — |
-| 3 | extraction-1 | CyCraft | ✅ 已解 | `AEGIS{26a27e4ce094beb91e1c0268fa0ce35ecc63691107cd98495e0351e5af6b2aee}` |
-| 4 | injection-1 | CyCraft | ✅ 已解 | `AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}` |
-| 5 | False_Continuity | Misc | 進行中 | — |
-| 6 | Jurassic_Time_Capsule | Misc | ✅ 已解 | `AEGIS{25.0081,121.4935}` |
-| 7 | Travel_1 | Misc | ✅ **已解**（隊友解出並提交） | `AEGIS{3R9C+2R}`（我方推導值，待與隊友答案核對） |
-| 8 | Travel_2 | Misc | 進行中 | — |
-| 9 | arbitragedb | Pwn | 進行中 | 找到 heap overflow (sub_4604)，seccomp 只允許 ORW |
-| 10 | AI_Challenge | Rev | 未開始 | — |
-| 11 | Slime | Rev | 進行中 | — |
-| 12 | aegis_asterism | Rev | 未開始 | — |
+| 1 | extraction-1 | CyCraft | ✅ 已解 | `AEGIS{26a27e4ce094beb91e1c0268fa0ce35ecc63691107cd98495e0351e5af6b2aee}` |
+| 2 | extraction-2 | CyCraft | 未開始 | — |
+| 3 | injection-1 | CyCraft | ✅ 已解 | `AEGIS{54189d7ccbd257c858414657fd08cdd209c623d8720f1e759c02d40e26b30920}` |
+| 4 | injection-2 | CyCraft | 未開始 | — |
+| 5 | Travel_1 | Misc | ✅ 已解（隊友提交） | `AEGIS{3R9C+2R}` |
+| 6 | Travel_2 | Misc | 進行中 | — |
+| 7 | Jurassic_Time_Capsule | Misc | ✅ 已解 | `AEGIS{25.0081,121.4935}` |
+| 8 | False_Continuity | Misc | 進行中 | — |
+| 9 | AI_Challenge | Rev | 未開始 | — |
+| 10 | Slime | Rev | 進行中 | — |
+| 11 | aegis_asterism | Rev | 未開始 | — |
+| 12 | arbitragedb | Pwn | 進行中 | 找到 heap overflow (sub_4604)，seccomp 只允許 ORW |
+| 13 | baby | Crypto | ✅ 已解 | `AEGIS{4r3_w3_d3s7in3d_70_m337_in_7h3_middl3_45e50b8d294ff376fb6}` |
+| 14 | nursery_melody | Crypto | 進行中 | — |
 
-已解：**5 / 12 = 500 分**
+**已解：5 / 14 = 500 分**
 
 | 題目 | 分數 | 來源 |
 |---|---|---|
