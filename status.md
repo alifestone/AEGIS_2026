@@ -285,13 +285,29 @@ with 'Insufficient data'. My initial request is to review 'Express.js' at https:
     **差異點才是真訊號**。灰字/黑字那層可能只是第二層誘餌。
   → 這也解釋了為什麼灰字排序怎麼試都不通 —— 排序的對象一開始就找錯了。
 
+  **修正 6：用像素級 silhouette 重做配對，結構是 48 對 + 48 單張（不是 46+52 也不是 45+54）。**
+  紙屑輪廓（用 texture variance 取，因為背景是平坦 218 無噪點、紙屑有噪點）
+  經 PCA 正規化後取 72 個角度 bin 的半徑 signature：
+  **真重複對的距離恰好是 0.000，隨機對是 15.5**，中間沒有任何東西。
+  用 threshold < 1e-9 建圖取連通元件 → **48 個 size-2 + 48 個 size-1**，乾淨俐落。
+  （先前 46+52 / 45+54 的差異是因為用 OCR 文字比對，會被 OCR 誤判污染。）
+
+  **48 對裡有 47 對「恰好只有 1 個差異區域」**，1 對有 3 個。
+
+  已把 48 個差異字位完整抽出（tools/dd3.py，結果含 (紙屑A, 紙屑B, 行, 列, charA, charB)）：
+
+  ```
+  A: IDH7GauHL=rodTSFSDwr1c=zFdoMMuGdecxQso6Dsz99zSo1
+  B: TI]vcH3o3=gH5uMI9snGhoosDDeznxTYryumoJAdvXZAxhxo
+  ```
+
+  目前照 (行,列) 排序也還不是明文，**48 個差異字元的正確順序仍未解**。
+  注意 48 對 + 48 單張這個對稱結構很可能有意義（例如單張提供順序、對子提供內容）。
+
 - **下一步**：
-  1. 把 36+ 個「差異字位」的 (index, charA, charB) 完整抽出來，看是否構成 flag
-     （差異位置的 index 可能就是排序，或 A/B 兩字元構成 bit/pair 編碼）
-  2. 52 張「單張」需要重新檢視：它們是真的沒有對，還是對子被我當成不同紙屑了？
-     （像素級 silhouette 比對顯示重複對的輪廓是 **完全相同（距離 0.00）**，
-      隨機對則是 15.5 —— 這個 signature 極度可靠，可以用來重新做配對）
-  3. tools/pixdiff.py、tools/sig.py、tools/sil.py 已放進 repo
+  1. 48 張**單張**還沒分析 —— 對稱結構暗示它們可能就是排序的鑰匙
+  2. 差異字元的 A/B 兩個值可能是 bit 編碼（例如字母序大小 → 0/1 → 48 bits = 6 bytes）
+  3. 那 1 對有 3 個差異區域的紙屑可能是 header／分隔符
 
 - **Flag**：—
 
