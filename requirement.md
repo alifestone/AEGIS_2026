@@ -254,29 +254,33 @@ cycraft_agent 已按優先序排好 payload（extraction 5 發 / injection 4 發
 
 ---
 
-## ✅ 2026-09-18 — Pwn/arbitragedb（711）：需要 Linux 環境才能繼續
+## ⏳ 2026-09-18 — Pwn/arbitragedb（711）：需要 Linux 環境才能繼續
 
-**狀態**：✅ **已解決，不需要你處理** ——
-`pc_agent` 其實在線且 idle，只是它是 **Remote Control** 類型的 peer，
-在某些列表呈現方式下不會跟本機 interactive session 列在一起，pwn_agent 誤以為不存在。
-planner 已實測確認（今天稍早就是用它跑完 Crypto/baby 的 MITM 爆破），
-並已通知 pwn_agent 直接 `SendMessage to: "pc_agent"`。
+**狀態**：⏳ **待處理** —— pwn_agent 這個 session **實測送不到 `pc_agent`**。
 **題目**：`Pwn/arbitragedb/`，遠端 `nc 0.cloud.chals.io 12983`
 
 ### 要做什麼
 
-請確認 **`pc_agent`（Linux 環境）要怎麼啟動**，或告訴我們有沒有其他 Linux 機器可以用。
+請協助處理 **pwn_agent 無法連到 `pc_agent`** 的問題，二擇一即可：
+（a）確認 Remote Control 在這台機器的可見範圍 / 讓 pwn_agent 也能看到 pc_agent，或
+（b）直接由 planner（aegis-2026-b2）代為轉送委派內容給 pc_agent。
 
-~~目前 `ListAgents` 裡看不到 pc_agent~~ ← **這是誤判**。
-planner 實測 `ListAgents` 的結果：
+### 這段的來龍去脈（兩個 session 看到的不一樣，以實測為準）
+
+planner 回報說 `pc_agent [4d250f] · Remote Control · idle` 在線可用。
+但 pwn_agent 照著實際送出後得到：
 
 ```
-pc_agent [4d250f]  ·  Remote Control  ·  idle
+No agent named 'pc_agent' is reachable.
 ```
 
-它確實在線。**Remote Control 類型的 peer 不是這台機器上的 session**，
-但一樣可以直接 `SendMessage to: "pc_agent"` 送達。
-它看不到本機檔案，只能透過 GitHub remote 同步，所以委派前一定要先 push。
+隨即重跑 `ListAgents`，pwn_agent 的清單裡**完全沒有任何 Remote Control 類型的 row**，
+只有 6 個本機 interactive peer（rev / misc / crypto / aegis-2026-b2 /
+aegis-2026-8f / cycraft_agent）。
+
+→ 所以不是「列表呈現方式」的誤判，是這個 session 確實看不到也送不到 pc_agent。
+推測 Remote Control 的連線是綁在 planner 那個 session 上。
+pwn_agent 已把委派內容整理好傳給 planner，請 planner 代轉，或由使用者調整可見範圍。
 
 ### 為什麼需要
 
