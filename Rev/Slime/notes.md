@@ -564,3 +564,86 @@ if ( price <= 0 || price <= coins )     // 注意是 price <= 0，不是 >= 0
 
 **目前誠實評估：遠端在 120 秒/連線的限制下，
 要湊到 1e15 金幣沒有已知可行路徑。** 需要找到第二個洞。
+
+
+---
+
+# planner 第二輪三問：全部關閉（2026-09-19，純靜態）
+
+## Q1/Q2：購買流程有沒有「數量」欄位 / 32-bit 截斷？ → **都沒有**
+
+`sub_4A596` 呼叫 `sub_48DAA` 的完整路徑（objdump 0x4a735~0x4a75b）：
+```
+4a735: add  rax,rdx              ; v23 = base + (idx<<8)
+4a738: mov  [rbp-0x20],rax
+4a73c: mov  rax,[rbp-0x20]
+4a740: mov  rax,[rax+0x68]       ; price = offer->offset 104，完整 64-bit
+4a744: mov  rdi,rax              ; 直接當第一個參數
+4a747: call 0x48daa              ; guard
+4a754: mov  rax,[rbp-0x20]
+4a75b: call 0x48e20              ; 套用效果（傳的是 offer 指標，不是 price）
+```
+
+- **沒有數量欄位**，沒有任何乘法
+- price 從頭到尾都是 `mov rax` / `mov rdi`（**64-bit**），
+  `sub_48DAA` 內也是 `mov [rbp-0x18],rdi` → `mov rax,[rbp-0x18]` → `cmp [rbp-0x8],0x0`，
+  **全程 signed 64-bit，無截斷**
+- guard 檢查的 price 和 `sub_4281E` 扣的 price **是同一個值**
+
+→ 「qty 乘法溢位」這條不成立。
+
+## Q3：道具效果的寫入目標 offset 可不可控？ → **完全硬編碼，不是任意寫**
+
+`sub_48E20` 全段（objdump 0x48e20~0x48edb）每一條都是「固定來源 → 固定目的」：
+
+| 來源（offer 內硬編碼 offset） | 目的（硬編碼 rip-relative 全域）|
+|---|---|
+| `[rax+0x70]` (112) | `0x382fd0` maxHP |
+| `[rax+0x70]` (112) | `0x382fd8` curHP |
+| `[rax+0x78]` (120) | `0x382fe0` ATK |
+| `[rax+0x80]` (128) | `0x382fe8` DEF |
+| `[rax+0x88]` (136) | `0x382ff0` **coins** |
+| `[rax+0x90]` (144) | `0x383000` camp kits |
+
+**沒有任何從資料讀出來的 offset，沒有計算過的位址，沒有間接寫入。**
+→ 「目標 offset 可控 → 任意寫」這條不成立。
+
+而 `sub_49251` 驗證的正好就是這五個來源欄位（112/120/128/136 不得為負、144<=0x63），
+**唯一漏檢的仍然只有價格 offset 104 的負數**。
+
+## 現況：商品可無限重複購買（但無助於生錢）
+
+`sub_4A596` 購買後**不會**把 offer 從 catalog 移除（0x4a75b 之後只有列印與存檔）。
+→ 可無限重複買 → **HP/ATK/DEF 可無上限堆高**（因為 `sub_427DC` 是裸加法）。
+   但 `+coins` 效果為 0，加 0 無意義。
+
+## ⚠️ 遠端狀態變化：所有附近玩家都變成空殼了
+
+最新一次連線（option 5）顯示 **live 玩家 = 0**，
+先前看到的 `MULEXX` / `ROBBYY` / `ed76b1d3d` / `5e7bed46d` / `971c45c8c`
+全部變成 `killed by ...`。
+
+可能原因：
+1. 題敘說的 "Save data may be reset once after a period of time" **已經發生**
+2. 或其他隊伍把所有人都打成空殼了
+
+→ **「搶富豪」這條路目前沒有目標可搶。** 需要重新觀察伺服器人口。
+
+## 剩餘可能性盤點（誠實評估）
+
+已徹底關閉：
+- ❌ stack overflow（frame 方向 + 4096 上限）
+- ❌ PvP 負金幣（造不出第一個負數）
+- ❌ 購買 qty 溢位（無 qty 欄位）
+- ❌ 道具效果任意寫（offset 全硬編碼）
+- ❌ 購買 index off-by-one（0..11 剛好在界內）
+- ❌ inventory 1024 bytes（零引用死資料）
+- ❌ KCS7_ENCRYPT（usleep 誘餌）
+
+仍開放：
+1. **負價格商品**：`sub_49251` 確實漏檢 price<0，
+   但需要 `slime_shops.dat` 裡真的有負價格 offer。
+   實測 11 項全正 → **除非 catalog 會變動（seed/世代不同？）**
+2. **搶到囤積大量金幣的玩家**：算術上只要有人持有 >= 2e15 就夠。
+   需要等伺服器人口恢復，或找到還沒被打的富豪。
+3. **worldgen / catalog seed** 這條線還沒看
