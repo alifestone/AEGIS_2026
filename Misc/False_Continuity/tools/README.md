@@ -1,5 +1,25 @@
 # False_Continuity 解題 pipeline
 
+> ## ⛔ 2026-09-19 暫停點 — 接手者請先讀
+>
+> **題目的真正結構：一份 base64 文件被撕成 96 張不重複紙屑。**
+> 「灰字 = payload、黑字 = 誘餌」是誤導，先前所有灰字分析都作廢。
+> 目視證據：`d65d678f` 第 2 行印的是 `dmVsb3BlIH...` = base64 `"velope"`（envelope）。
+>
+> | 檔案 | 狀態 |
+> |---|---|
+> | `fc_ocr2.pkl` | ✅ **用這個**（方向已修正，含 `deg`/`score`/`alt`） |
+> | `DEPRECATED_fc_ocr_WRONG_ORIENTATION.pkl` | ⛔ **作廢**，46% 的字顛倒，任何基於它的讀值全錯 |
+> | `orient2.py` | ✅ pipeline 入口（重跑會產生 fc_ocr2.pkl，很慢，非必要別重跑） |
+>
+> **下一步只有兩步**：
+> 1. 把 `ocr5.py` 的 `CHARS` 限縮成 `A-Za-z0-9+/=` 重跑 OCR
+>    （base64 對單字元錯誤零容忍；目前 template matcher 會混淆 V/m、5/s、I/l/1、O/0）
+> 2. 用**字元級 overlap** 把 96 張接龍成一條 base64 字串 → 解碼
+>
+> 完整脈絡見 [status.md](../../../status.md) 的 False_Continuity 段落（修正 1~10）。
+
+
 由 planner session 建立，交接給 misc session。**路徑假設你在 scratchpad 解壓好 zip**，
 144 張 PNG 放在 `fc/` 子目錄下，腳本從當前目錄的 `fc/*.png` 讀取。
 
@@ -13,7 +33,7 @@ cp <repo>/Misc/False_Continuity/tools/*.py .
 python glyphs6.py          # -> fc_g6.pkl
 
 # 3. OCR（約 2 分鐘）
-python ocr5.py             # -> fc_ocr.pkl
+python ocr5.py             # -> fc_ocr.pkl  ⛔ 方向會錯 46%，改跑 orient2.py
 ```
 
 ## 檔案說明
@@ -24,13 +44,15 @@ python ocr5.py             # -> fc_ocr.pkl
 | `glyphs6.py` | 主 pipeline：±90° 全範圍去斜 → 180° 正反判定 → per-glyph 自適應門檻 → 切行切字 |
 | `ocr5.py` | DejaVu Sans Mono template matching OCR，參數已用已知正解調校到 95% |
 | `refine.py` | 嘗試用「紙張邊緣」過濾誤判的 faint（**這條路失敗了**，留著當負面紀錄） |
-| `fc_ocr.pkl` | **已跑好的 OCR 結果**，可以直接 load 不用重跑 |
+| ~~`fc_ocr.pkl`~~ | ⛔ **已作廢並改名為 `DEPRECATED_fc_ocr_WRONG_ORIENTATION.pkl`**，46% 的字顛倒 |
+| `fc_ocr2.pkl` | ✅ **方向已修正的 OCR 結果**，直接 load 即可（由 `orient2.py` 產生） |
+| `orient2.py` | ✅ 正確的方向判定：每張在 `deg` 與 `deg+180` 各跑完整 OCR，取 template 匹配較好者 |
 
-## fc_ocr.pkl 結構
+## fc_ocr2.pkl 結構
 
 ```python
 import pickle
-d = pickle.load(open('fc_ocr.pkl','rb'))
+d = pickle.load(open('fc_ocr2.pkl','rb'))   # 每筆另有 'deg' / 'score' / 'alt'
 # d: { 'fc\<name>.png': {'scale': float, 'lines': [[glyph, ...], ...]} }
 # glyph: {'ch': 辨識出的字元, 'alts': [前5個候選], 'score': 匹配分數(越小越好),
 #         'faint': bool 是否為灰字, 'x0': int, 'y0': int}

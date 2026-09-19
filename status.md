@@ -386,6 +386,17 @@ with 'Insufficient data'. My initial request is to review 'Express.js' at https:
   ```
   （舊的那兩串是髒資料，**不要再用**。48 對「恰好 1 個字不同」的結構在新方向下依然成立。）
 
+  ### ⛔ 接手者請先讀這三行（2026-09-19 暫停點）
+
+  1. **`tools/fc_ocr.pkl` 作廢** —— 有 46% 的字是顛倒讀出來的。
+     **一律改用 `tools/fc_ocr2.pkl`**（含 `deg` / 方向分數 `score` / `alt`）。
+     所有基於舊 pkl 的字元讀值（含 48 差異字元的兩串 A/B）都是髒資料。
+  2. **pipeline 入口 = `tools/orient2.py`**（可直接執行，重跑會產生 fc_ocr2.pkl；
+     約需對 144 張各做兩個方向的完整 OCR，很慢，**沒必要就別重跑，直接 load pkl**）。
+  3. **下一步只有兩步**：
+     (a) 把 `ocr5.py` 的 `CHARS` 限縮成 `A-Za-z0-9+/=` 重跑 OCR（降低 V/m、5/s、I/l/1、O/0 混淆）
+     (b) 用字元級 overlap 把 96 張紙屑接龍成一條 base64 字串 → 解碼
+
   **🔥🔥 修正 10（決定性突破）：紙屑上的「亂碼」根本不是亂碼，是一份 base64 文件被撕碎。**
 
   用修正 9 的正確方向重看單張時，發現好幾張出現明顯的 base64 片段，例如
