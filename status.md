@@ -394,7 +394,9 @@ with 'Insufficient data'. My initial request is to review 'Express.js' at https:
   2. **pipeline 入口 = `tools/orient2.py`**（可直接執行，重跑會產生 fc_ocr2.pkl；
      約需對 144 張各做兩個方向的完整 OCR，很慢，**沒必要就別重跑，直接 load pkl**）。
   3. **下一步只有兩步**：
-     (a) 把 `ocr5.py` 的 `CHARS` 限縮成 `A-Za-z0-9+/=` 重跑 OCR（降低 V/m、5/s、I/l/1、O/0 混淆）
+     (a) 把 `ocr5.py` 的 `CHARS` 常數限縮成 `A-Za-z0-9+/=`，然後**用 `orient2.py` 跑**
+         （`orient2.py` import ocr5 重用其 `classify()`，改 CHARS 會生效；
+         ⚠️ 直接跑 `ocr5.py` 無效——它用的是壞掉的 180° 判定）
      (b) 用字元級 overlap 把 96 張紙屑接龍成一條 base64 字串 → 解碼
 
   **🔥🔥 修正 10（決定性突破）：紙屑上的「亂碼」根本不是亂碼，是一份 base64 文件被撕碎。**

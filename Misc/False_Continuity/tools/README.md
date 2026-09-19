@@ -13,8 +13,11 @@
 > | `orient2.py` | ✅ pipeline 入口（重跑會產生 fc_ocr2.pkl，很慢，非必要別重跑） |
 >
 > **下一步只有兩步**：
-> 1. 把 `ocr5.py` 的 `CHARS` 限縮成 `A-Za-z0-9+/=` 重跑 OCR
+> 1. 把 OCR 的字元集限縮成 `A-Za-z0-9+/=` 重跑
 >    （base64 對單字元錯誤零容忍；目前 template matcher 會混淆 V/m、5/s、I/l/1、O/0）
+>    ⚠️ **改 `ocr5.py` 的 `CHARS` 常數，但要用 `orient2.py` 跑**——
+>    `orient2.py` 是 `import ocr5` 重用它的 `classify()`/`build()`，
+>    所以改 `CHARS` 會生效；但**直接跑 `ocr5.py` 沒有用**，它用的是壞掉的 180° 判定。
 > 2. 用**字元級 overlap** 把 96 張接龍成一條 base64 字串 → 解碼
 >
 > 完整脈絡見 [status.md](../../../status.md) 的 False_Continuity 段落（修正 1~10）。
