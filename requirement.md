@@ -547,3 +547,56 @@ AEGIS{51b417881bfa3dfe9712a059a8ee6f7c11ea1fd6ffeaa2d48404846d6d893437}
    回頭看 extraction-1 一發就中其實是運氣好，模型剛好沒改寫。
 
 本題共消耗 **3 次 quota**（偵察 1 + 失敗 1 + 成功 1）。
+
+---
+
+## 🔴 12.【請協助】CyCraft q2 兩題的 endpoint 掛掉了，我們這邊無法自行恢復
+
+- **時間**：2026-09-19
+- **題目**：`CyCraft/injection-2`（尚未開工）、`CyCraft/extraction-2`（已解，flag 已到手）
+- **狀態**：🔴 **卡住，需要你從 CTFd 端確認**
+
+### 情況
+
+你指示開工 injection-2 後，`cycraft_agent` 第一步就撞牆——**不是 payload 問題，是連不上**。
+
+### 已界定故障範圍（planner 獨立複驗過，不是單一 session 的錯覺）
+
+| 目標 | 結果 |
+|---|---|
+| injection-2（q2） | HTTP 000 ×16 |
+| extraction-2（q2） | HTTP 000 ← 稍早才剛用它解出 flag |
+| extraction-1（q1） | ✅ 200 正常 |
+| injection-1（q1） | ✅ 200 正常 |
+| example.com | ✅ 200（我方網路正常） |
+| DNS 解析 | ✅ 正常（q2 兩題都解得到 IP：143.244.222.116 / .115） |
+
+→ **DNS 正常、我方網路正常、q1 兩題活著，唯獨兩個 q2 容器同時掛掉。**
+   這是**平台側 q2 的問題**，不是我們這邊、不是單一題目、不是 DNS。
+
+### planner 額外查證（用你給的 CTFd API token）
+
+- **CTFd 沒有任何公告**（`/api/v1/notifications` 回傳 0 筆）
+- **CTFd 沒有安裝容器管理外掛**（`plugins/containers/api/running`、
+  `ctfd-whale` 等端點皆 404）→ 代表 **q2 是平台側固定託管，選手端沒有
+  「launch / restart 容器」的按鈕可按**，我們無法自行恢復。
+
+### 需要你做什麼（擇一）
+
+1. **到 CTFd 網頁看一下** injection-2 / extraction-2 的題目頁面，
+   是否有「Launch Instance」之類的按鈕，或有任何錯誤訊息／公告
+2. 若沒有，**到比賽的 Discord／公告管道回報主辦方**：
+   「CyCraft q2 兩題（extraction-2 / injection-2）的 endpoint 無回應，q1 兩題正常」
+3. 回報結果給我們，`cycraft_agent` 一收到恢復通知就能立刻開工
+   （SOP 與 payload 方向都已備妥，就等連線）
+
+### 補充：不影響已到手的 flag
+
+extraction-2 的 flag（第 11 項）是在 endpoint 掛掉**之前**拿到的，
+平台已回傳 `attack_succeeded=true`，**照常提交即可**，不受這次故障影響。
+
+### 參考：上次也掛過
+
+解 extraction-2 途中 endpoint 曾掛掉一次（連續 6 次 000），約 10 分鐘後自行恢復。
+這次已超過 11 分鐘未恢復，且**範圍更大（兩個 q2 同時掛）**。
+`cycraft_agent` 正掛著背景輪詢，若自行恢復會立刻開工，屆時這條可註記為自動解決。
