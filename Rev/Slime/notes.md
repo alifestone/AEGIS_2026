@@ -312,3 +312,152 @@ x∈[510,990]、y∈[510,804] 這個區塊，**一個 `$` hidden shop 都沒找�
 → 除非找到「讓伺服器把受控值寫進 header」的第三條路，
    否則遠端金幣上限就是 `0x1FFFFFFFFFFFFF`。
    **下一步關鍵問題：商店裡的 flag 商品到底要多少錢？** 必須先進到商店才知道。
+
+
+---
+
+# 🔥 突破：找到 hidden shop，flag 價格 = 1e15（2026-09-19）
+
+## Shop 座標 (134, 494)
+
+第一輪掃東南象限 349 視窗全空；改掃**西半部**後第 18 個視窗就中了。
+座標 **(134, 494)**，地形是 marsh(`~`) 一片沼澤中間。
+（掃描器 `fs3.py`，state 存在 `fs3_state.json`。）
+
+## 商品清單（實際進店擷取）
+
+```
+HIDDEN SLIME SHOP | Shared Slime Supply Catalog | Coins: 0
+ 1. [Rare]      Rare Vitality Tonic          495 coins   +47 max HP
+ 2. [Common]    Common Warrior Rune          403 coins   +3 ATK
+ 3. [Epic]      Epic Guardian Plate         1189 coins   +6 DEF
+ 4. [Uncommon]  Uncommon Triune Relic       1092 coins   +25 max HP +3 ATK +3 DEF
+ 5. [Rare]      Rare Explorer Pack           765 coins   +17 max HP +2 camp kit
+ 6. [Uncommon]  Uncommon Life Crystal        589 coins   +68 max HP
+ 7. [Common]    Common Power Core            754 coins   +6 ATK
+ 8. [Common]    Common Aegis Core            754 coins   +6 DEF
+ 9. [Uncommon]  Uncommon Royal Sigil        1418 coins   +31 max HP +4 ATK +4 DEF
+10. [Epic]      Epic Frontier Kit            922 coins   +22 max HP +2 camp kit
+11. [Legendary] Flag            1000000000000000 coins   （無效果）
+```
+
+🎯 **flag 價格 = 1,000,000,000,000,000 = 1e15**
+✅ **1e15 < 0x1FFFFFFFFFFFFF = 9,007,199,254,740,991 ≈ 9.007e15**
+→ **金幣飽和上限「不會」擋住買 flag**，這條路在數學上是通的。
+
+## ❌ 最終確認：sub_486B4 的 stack overflow 無法利用（結案）
+
+把整個 frame 排出來（IDA 的 rbp-offset），對照溢位方向（往高位址寫）：
+
+| 變數 | rbp-off | 需要的 v29 index |
+|---|---|---|
+| v18/v19/v20(計數器)/i/**v22(對手指標)**/**v23**/**v24[64]名字**/v25..v28 | 0x80E0 ~ 0x8058 | **全部是負 index** |
+| `v29[2]` | 0x8010 | 0（基底）|
+| `v30`（28KB 顯示 buffer）| 0x8000 | 2 |
+| v31 / v32 | 0x10F0 / 0x1000 | 3556 / 3586 |
+| **canary** | 0x0008 | **4097 > 4096 上限** |
+
+→ **所有有價值的目標（v22 對手存檔指標、v24 名字 buffer、v20 計數器本身）
+   都在 v29 的「低位址」方向，往高位址溢位永遠碰不到。**
+   index 2 以後寫進去的全是 28KB 顯示 buffer，無害。canary 在 index 4097 超出上限。
+
+而且實測遠端 (500,500) 附近有 **46 個玩家**同時在攻擊範圍內
+→ 這個溢位**現在每次開 PvP 選單都在觸發**，但就是寫進無害的 buffer。
+**這個漏洞是 red herring／或只是個無法利用的 bug，不是解法。結案。**
+
+## 遠端現況（重要）
+
+- **本機公網 IP 會變動** → 每換一次 IP 就是一個全新玩家（全新存檔、0 金幣）。
+  已觀察到自己的 Player ID 從 `995535104` → `8fd6474f7` → `fd21f9739`。
+  （註：ID 不是單純的 `sha256(ip)[:16]`，實測對不上，應該有 salt 或用別的 digest，
+   但這不影響攻擊。）
+- 伺服器上有 **74 個玩家存檔**，大量叫 `killed by ed76b1d3d` / `killed by b4d4e1238`
+  → **其他參賽隊伍正在大規模 PvP farming**。
+- 有名字的活躍玩家：`MULEXX`、`FARMERX`、`ed76b1d3d`、`b4d4e1238`
+  （MULEXX 實測 HP 97 / ATK 34 / DEF 13；我方新角色 HP 10 / ATK 2 / DEF 1 → 秒死）
+- `killed by *` 的存檔是被榨乾的空殼（金幣被拿走一半後又一半…）
+
+## PvP 金幣轉移是「對半分」且雙向飽和（無法放大）
+
+- 我贏：`stolen = victim.coins/2`；`me.coins = sat_add(me.coins, stolen)`（`sub_483A4`）
+- 我輸：`stolen = my.coins/2`；`winner.coins = sat_add(winner.coins, stolen)`
+  然後寫回 winner 存檔（`sub_484E9`，objdump 0x48614~0x4865e 確認）
+
+→ 沒有任何「放大」效果，1e15 不可能靠正常 PvP 對半分累積出來
+  （除非有人已經有 2e15）。
+
+## 下一步（尚未解決的核心問題）
+
+**如何取得 1e15 金幣？** 已排除：
+- ❌ 打怪／賞金／撿道具：全部 `sub_4272B` 飽和加法，且單次獎勵是小數字
+- ❌ PvP：對半分，無放大
+- ❌ 改存檔：遠端一 IP 一檔、檔名不可選，且寫檔都是從 struct 序列化
+- ❌ stack overflow：結構上碰不到任何有用目標
+- ❌ 商店負價格：`sub_48DAA` 的 `if (price<=0 || ...)` 確實會對負價格加錢，
+      但 catalog 在伺服器端 `slime_shops.dat`，且實測 11 項價格全為正
+
+**還沒查的**：
+1. 購買流程 `sub_48E20`（扣款後做什麼）有沒有可利用的狀態
+2. `sub_48F62` / catalog 結構裡 offer 的 offset 104（價格）在記憶體中能否被改
+3. 是否有第二間商店賣不同價格的東西（目前只掃到 (134,494) 一間）
+
+
+---
+
+# 關鍵限制與新發現（2026-09-19 續）
+
+## ⏱️ 硬限制：每次連線只有 120 秒
+
+`sub_4264A`（`sub_4ABD8` 開場呼叫）：`sub_235950(120)` = **`alarm(120)`**，
+逾時印 `Session time limit reached. Your game was saved.` 後斷線。
+
+→ 每個 session 只有 **120 秒**，而 PoW 要花 15~60 秒（難度 27~28 bits，
+   會隨連線頻率上升）。**實際可操作時間每次只有約 60~100 秒。**
+   這是所有「大量重複操作」策略的致命限制。
+
+## ⚔️ 打怪是互動式戰鬥，不是一鍵結算
+
+實測 option 2 會進入戰鬥選單：
+```
+1.Attack  2.Guard  3.Power Burst(3 energy)  4.Second Wind  5.Flee  6.Scan
+action:
+```
+→ 每場戰鬥要多輪互動，在 120 秒限制下能打的場次很有限。
+
+## 🔍 重要：sub_48E20（購買後套用效果）用的是「不飽和」加法
+
+```c
+qword_382FD0 = sub_427DC(qword_382FD0, *(a1+112));   // +max HP
+qword_382FD8 = sub_427DC(qword_382FD8, *(a1+112));
+qword_382FE0 = sub_427DC(qword_382FE0, *(a1+120));   // +ATK
+qword_382FE8 = sub_427DC(qword_382FE8, *(a1+128));   // +DEF
+qword_382FF0 = sub_427DC(qword_382FF0, *(a1+136));   // +coins
+```
+
+而 `sub_427DC` = `sub_427BB(sub_42796(a1) + sub_42796(a2))`，
+其中 `sub_42796` 和 `sub_427BB` **都是 `return a1`（什麼都不做）**
+→ **`sub_427DC` 就是未檢查的 `a + b`，沒有飽和、沒有夾值。**
+
+對比：遊戲內所有「賺錢」路徑用的是 `sub_4272B`（飽和夾在 0..0x1FFFFFFFFFFFFF）。
+→ **購買道具套用效果時，HP / ATK / DEF / coins 都是無上限累加。**
+
+這代表：
+- 重複購買 stat 道具可以把 HP/ATK/DEF 堆到任意高（沒有 99 之類的上限）
+- 如果有 offer 的 `+coins`(offset 136) 不為 0，重複買就能無限加錢
+  → 但實測 11 項商品的 `Effects:` 都沒有 `+coins`，只有 HP/ATK/DEF/camp kit
+
+## 📊 經濟現實：1e15 靠正常手段拿不到
+
+- 打怪獎勵：小額（賞金 25~48 coins 等級）
+- PvP：`stolen = victim.coins / 2`，**對半分，無放大**
+- 74 個玩家裡大多是 `killed by *` 的空殼
+- 要買 flag 需要 **1e15**，需要有人持有 2e15 才能一次偷到
+
+→ **必須找到「非線性」的加錢路徑，或直接讓伺服器寫入受控的 header 金幣值。**
+
+## 待驗證的下一步
+
+1. 商店是否有第二間、且賣「+coins」道具或負價格道具
+   （目前只掃到 (134,494) 一間，掃描覆蓋率約 20%）
+2. 戰鬥系統（`sub_45F22` / Power Burst / Scan）裡是否有金幣相關的溢位
+3. `sub_48F62`（把 offer 加進 catalog 的函式）與 catalog 記憶體佈局
