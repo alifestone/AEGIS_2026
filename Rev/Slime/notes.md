@@ -807,3 +807,78 @@ Player ID `8fd6474f7`（本機 IP 會變，ID 會跟著變），
 
 ⚠️ 但要注意題敘明文禁止 DDoS，且 PoW 難度會隨連線頻率上升（已見 27→28 bits），
 長跑 bot 必須控制連線節奏。
+
+
+---
+
+# ❌ catalog seed 捷徑：四個環節全斷（2026-09-19，20 分鐘靜態確認）
+
+planner 提出「存檔 inventory header 的 v36 也帶 catalog seed，可能是第二個 seed 來源」。
+objdump 全域 grep `0x942198` 的結果如下——**這條路完全不成立**。
+
+## `qword_942198` 的全部 6 個引用：只有 1 個是寫
+
+```
+WRITE（唯一一個）
+  0x4491b  sub_4470C   qword_942198 = v11   ← 來源是 slime_world.map 的 header
+
+READ（全部都是讀）
+  0x43d6f  sub_43717   存檔載入：比對 inventory header 的 v36
+  0x4411f  sub_43E31   存檔寫出：把它寫進 inventory header
+  0x44a8d  sub_44949   怪物表載入：比對
+  0x46e35  sub_46DEC   道具生成：當 splitmix64 的 seed
+  0x4a426  sub_4A3B7   catalog 載入：當作期望的 seed 傳進去
+```
+
+## 環節 1 斷：存檔的 v36 是「被比對」，不是「寫入 seed」
+
+objdump `0x43d68`~`0x43d79`：
+```
+43d68: mov  rdx,[rbp-0x1538]        ; 存檔裡的 v36
+43d6f: mov  rax,[rip+0x8fe422]      ; qword_942198
+43d76: cmp  rdx,rax                 ; ★ 純比較
+43d79: jne  0x43dd1                 ; 不合就 reject
+```
+**是 `cmp` 不是 `mov`。存檔永遠不可能覆寫 seed。**
+
+## 環節 2 斷：順序也不對——catalog 在存檔之前就載完了
+
+`sub_4ABD8` 的呼叫順序：
+```
+sub_4511F()                  設定 SAVE_DIR
+sub_45229() → sub_4470C()    ★ 從 world map 寫入 qword_942198（唯一的寫）
+sub_4A3B7(&unk_9431A0)       ★ 載入 catalog 並比對 seed
+...
+sub_44427()/sub_43717()      之後才載入玩家存檔
+```
+→ **catalog 早在任何存檔被讀之前就已經載入並驗證完畢。**
+   就算存檔能影響 seed（它不能），也已經來不及。
+
+## 環節 3 斷：catalog 檔只能有一組 seed，沒有「多段依 seed 選用」
+
+`sub_49B81` 解析 `seed=` 時：
+```c
+if ( v7 || !sub_494CB(v20, &v15) || !v15 )
+    { v12 = sub_49B04(v16, "seed must be one positive integer"); break; }
+v7 = 1;
+```
+`v7` 是「已見過 seed」的旗標，**第二次出現 seed 就直接報錯中止**。
+`format` / `world_version` / `world_width` / `world_height` / `catalog`
+也都各自有 `v6`/`v8`/`v9`/`v10`/`v11` 重複旗標。
+→ **一個 catalog 檔只有一組 metadata、一份 offer 清單，不存在依 seed 切換的第二組資料。**
+
+## 環節 4 斷：PvP 寫回確實是整份 struct 落盤，但那反而證明 v36 不可控
+
+`sub_43E31` 寫檔時 `*((_QWORD *)v24 + 8) = qword_942198;`
+→ **v36 是從全域 seed 現場產生的，不是從被攻擊者的 struct 複製的。**
+   所以就算我們能讓伺服器代寫別人的存檔，寫出去的 v36 永遠等於當前世界的 seed。
+
+## 結論
+
+**這條捷徑四個環節全斷，正式放棄。** 回到 farming 主線。
+
+至於「題目刻意留了 `sub_49251` 不檢查負價格、卻沒有路徑觸發」這個不對稱——
+合理的解釋是：**那個洞是留給「能放自己的 `slime_shops.dat`」的情境**
+（例如本機跑這支 binary 時 `SLIME_WORLD_DIR` 指向自己的目錄），
+屬於「本機可驗證、遠端不可達」的設計產物，不是遠端解法。
+遠端解法就是老實把金幣賺到 1e15。
