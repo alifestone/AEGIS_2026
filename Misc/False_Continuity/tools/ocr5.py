@@ -1,4 +1,9 @@
-"""Final OCR over all tiles with tuned parameters."""
+"""Final OCR over all tiles with tuned parameters.
+
+⛔ LEGACY：本腳本用 glyphs6.process() 的 180° 判定，會錯 46% 的紙屑。
+要產生正確的 OCR 結果請跑 orient2.py（輸出 fc_ocr2.pkl）。
+下一步優化：把下方 CHARS 限縮成 A-Za-z0-9+/= 以降低 base64 誤判。
+"""
 import pickle, string, sys, json
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw

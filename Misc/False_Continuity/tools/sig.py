@@ -1,3 +1,7 @@
+# ⛔ 注意：本檔 load 的 fc_ocr.pkl 已作廢（180° 方向判定錯 46%）。
+# 該檔已改名為 DEPRECATED_fc_ocr_WRONG_ORIENTATION.pkl，本腳本目前會跑不起來。
+# 本腳本的結果僅供歷史參考；要重跑請改用 fc_ocr2.pkl（見 tools/README.md）。
+
 import pickle
 pairs,lone=pickle.load(open('twins.pkl','rb'))
 ocr=pickle.load(open('fc_ocr.pkl','rb'))
