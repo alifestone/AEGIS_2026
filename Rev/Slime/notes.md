@@ -745,3 +745,65 @@ Trait: Royal: heals, dodges, and uses crushing attacks
 **下一步**：寫一個高效率的 bootstrap 腳本——
 單一 session 內：確認位置 → 打低 danger 怪數場 → 累積金幣，
 金幣夠了再跑一趟 shop 買 stat，逐步爬 danger 階梯。
+
+
+---
+
+# 實戰 bootstrap 嘗試與遇到的工程問題（2026-09-19）
+
+## 已驗證的怪物階梯
+
+| 位置 | 地名 | danger | 怪物 | 怪物數值 | rec. power |
+|---|---|---|---|---|---|
+| (506,500) | Sunny Meadow | 0 | Blue Slime | HP 9 / ATK 3 / DEF 1 | 10 |
+| (0,0) / (12,0) | Royal Citadel | 98~100 | **Slime King** | **HP 165218 / ATK 17650 / DEF 7358** | **135000** |
+
+Slime King 的 trait：
+```
+Royal: heals, dodges, and uses crushing attacks
+  Heal: 26% chance, restores 14% max HP
+  Heavy attack: 30% chance, 210% attack power
+  Evasion: 18% chance
+  Critical: 9% chance, 195% damage | flee success: 25%
+```
+
+新角色起始值：**HP 10 / ATK 2 / DEF 1 / Power 14 / Camp kits 3**。
+
+## ⛔ bootstrap 的實際困難
+
+1. **起始角色連 Blue Slime 都打得很勉強**（HP 10 vs 怪 HP 9/ATK 3）。
+   實測在 (508,500) danger 1 被打死一次。
+2. **死亡會把位置重設回 (500,500) Central Town**（`sub_45C64`：
+   `dword_382FF8=500; dword_382FFC=500`），而且金幣砍半。
+   → 每次死掉就要重走一趟。
+3. **Central Town 是保護區**，`sub_47BB6` 在 terrain==5 時直接拒絕戰鬥
+   （"Central Town is protected. Move outside the T tiles to hunt slimes."），
+   此時 option 2 會立刻回主選單 → 腳本若沒判斷會把後續的 "1" 當成主選單指令誤送。
+4. **120 秒/連線**：從 (500,500) 走到角落 (0,0) 約 1348 步就吃掉整個 session；
+   走回來又是一個 session。移動每格 `usleep(20000)`。
+
+## 目前角色狀態
+
+Player ID `8fd6474f7`（本機 IP 會變，ID 會跟著變），
+名字被打成 `killed by fd21f9739`，Coins 0，HP 10/10，ATK/DEF 2/1，
+位置 (500,500)，Journey 2369 steps，0 slime wins。
+
+## 路線可行性評估（誠實）
+
+理論上 **route 是通的**：
+`低 danger 打小怪 → 買 stat 道具（sub_427DC 裸加法，無上限、可無限重買）
+→ 打更高 danger 的怪 → 單場獎勵上限 9e15 > flag 價 1e15 → 買 flag`
+
+但**工程成本很高**：
+- 每個 session 只有 ~60~100 秒有效時間（扣掉 PoW 15~60 秒）
+- 每場戰鬥多輪互動，每輪一次網路 round-trip
+- 要從 ATK 2 爬到能打 rec. power 135000 的怪，需要大量 stat 道具，
+  每件 400~1400 coins，而 Blue Slime 的單場獎勵是個位數~數十
+- 中間還要來回 shop (134,494)（距中心 366 格）
+
+**這條路需要長時間自動化掛機，不是幾次連線能收掉的。**
+如果要走，建議寫一個穩定的長跑 bot（自動重連、自動 PoW、
+狀態機處理 town/戰鬥/購物），讓它跑數小時。
+
+⚠️ 但要注意題敘明文禁止 DDoS，且 PoW 難度會隨連線頻率上升（已見 27→28 bits），
+長跑 bot 必須控制連線節奏。

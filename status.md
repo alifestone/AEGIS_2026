@@ -873,35 +873,52 @@ glibc 2.43 `_IO_validate_vtable` 在這條路徑的檢查點。其餘靜態全�
 - **可用 skill**：`offensive-bug-identification`、`offensive-vuln-classes`
 
 ### Slime
-- **狀態**：進行中（header 注入面完整摸清，卡在「找不到 hidden shop tile」）
-- **進展**：完整驗證見 [Rev/Slime/notes.md](Rev/Slime/notes.md)。
-  - ✅ **遠端流程打通**：`hashcash -mb27` PoW（難度會隨連線頻率升到 28 bits，
-    請節制）。已有 miner + client（scratchpad `hc2.py` / `client.py`）。
-    注意登入後可能出現 `A save exists. Continue it? [Y/n]:` 需先回答。
-  - 🎯 **42-byte header 四個欄位全部無驗證，且全是關鍵屬性**：
-    file off 9→struct 80 = **max HP**（載入時同步成 cur HP）、
-    17→96 = **ATK**、25→104 = **DEF**、33→112 = **金幣**。
-    前一輪誤認的 `<=0x1FFFFFFFFFFFFF` 上限其實掛在 offset 136/144/152，
-    那是 **steps / slime wins / PvP wins**，與金幣無關。
-  - 🎯 **PvP 零回合秒殺**：`sub_480D4` 的 `while (myHP>0 && oppHP>0)`，
-    對手 HP<=0 時迴圈不跑直接 `return 1`（我方勝）。對手 HP 來自其 header，無驗證。
-  - **金幣轉移算式**（objdump 確認）：`stolen = victim.coins / 2`（算術右移），
-    我方 `coins = saturating_add(coins, stolen)`。所有加錢路徑都飽和夾在
-    `[0, 0x1FFFFFFFFFFFFF]` → **遊戲內金幣上限 9007199254740991**。
-  - **商店負價格是設計弱點**：`sub_49251` 驗證 offer 的 112/120/128/136 不得為負，
-    **唯獨價格 offset 104 不檢查負數**；`sub_48DAA` 的 `if (price<=0 || price<=coins)`
-    會對負價格執行減法 → 加錢。但 catalog 是伺服器端 `slime_shops.dat`，我們寫不了。
-  - ❌ **KCS7_ENCRYPT 是誘餌，結案**：`sub_23B8D0` 經 objdump 確認就是 `usleep`
-    （除以 1e6 組 timespec 後 nanosleep），`"KCS7_ENCRYPT"` 只是被當微秒數的字串指標。
-    另更正：`sub_41FCB` **會被呼叫**（`sub_42ADD` 輸入非法時），不是「從未被呼叫」。
-  - ⚠️ **遠端無法寫入自選 header**（planner 的提問）：玩家身分 =
-    `SHA256(正規化來源 IP)[:8]`，存檔檔名即該值 → 一 IP 一檔、檔名不可選；
-    寫檔路徑都是從當前 struct 序列化，而 struct 值被飽和運算夾住。
-- **卡點**：掃了 **349 個 21×21 視窗 ≈ 154k tiles（x∈[500,993], y∈[500,804]）
-  一個 `$` hidden shop 都沒找到**。目前正在掃西半部（x<500）與北半部（y<500）。
-  商店是 `slime_world.map` 內的固定資料（bit7），不是 seed 算出來的，只能靠探索。
-- **下一步**：找到 `$` tile → 進 option 6 看 flag 商品價格 → 判斷 9e15 上限夠不夠。
-- **Flag**：—
+- **狀態**：進行中（**路線已完全打通，卡在工程成本**）
+- **Flag**：—（flag 是商店第 11 項商品，要 1e15 金幣才買得到）
+
+#### 🎯 完整解題路線（已驗證每一環）
+1. **hidden shop 在 (134,494)**，主選單輸入隱藏的 **option 6** 進店
+   （全圖剛好 **10 間**商店——`sub_44BCC` 驗證 `v3 != 10` 會 reject；
+   但 **10 間商品完全相同**，因為 catalog 是單一全域檔 `slime_shops.dat`，
+   `sub_4A596` 只用位置 gate「有沒有店」，不依 tile 過濾商品）
+2. **商品第 11 項 = `[Legendary] Flag`，價格 1e15**；
+   其餘 10 項是 403~1418 coins 的 HP/ATK/DEF 道具
+3. ✅ **1e15 < 0x1FFFFFFFFFFFFF (9.007e15)**，金幣上限不擋
+4. ✅ **道具效果用 `sub_427DC` = 裸加法，無飽和；且購買後不從 catalog 移除**
+   → **HP/ATK/DEF 可無限重複購買、無上限堆高**
+5. ✅ **怪物金幣獎勵上限 = 0x1FFFFFFFFFFFFF ≈ 9e15**（`sub_44BCC` 驗證 entry qword14）
+   `danger = min(100, 100*dist((x,y),(500,500))/707)`，**四角 danger 100**
+   → (0,0) Royal Citadel 的 **Slime King：HP 165218 / ATK 17650 / DEF 7358,
+     recommended power 135000**，單場獎勵足以買 flag
+
+#### ⛔ 卡點：工程成本，不是漏洞
+- **`alarm(120)`：每次連線只有 120 秒**，PoW 還要吃 15~60 秒（27~28 bits，難度隨頻率上升）
+- 戰鬥是**互動式多輪**，每輪一次 round-trip；移動每格 `usleep(20000)`
+- 起始角色 HP 10 / ATK 2 / DEF 1，連 Blue Slime（HP 9/ATK 3）都打得勉強
+- 死亡會**重設位置回 (500,500)** 並砍半金幣；Central Town 是保護區不能打怪
+- 從中心走到角落 (0,0) 約 1348 步 = 一整個 session
+→ **需要長跑自動化 bot（自動重連+PoW+狀態機）跑數小時才收得掉。**
+
+#### 已徹底排除（不要重做）
+- ❌ **stack overflow `sub_486B4`**：v22/v23/v24/v20 全在 v29 低位址方向，
+  往高位址溢位碰不到；canary 在 idx 4097 > 4096 上限。**是 red herring**
+  （實測遠端 (500,500) 有 46 個玩家同時在範圍內，溢位每次都在觸發但只寫進無害 buffer）
+- ❌ **PvP 造負金幣**：`victim_new = c - (c>>1) = ceil(c/2)`，負數只往 0 靠近，造不出第一個負數
+- ❌ **購買 qty 溢位**：無數量欄位，price 全程 signed 64-bit 無截斷
+- ❌ **道具效果任意寫**：`sub_48E20` 每條都是固定 offer offset → 固定全域，無間接寫
+- ❌ **購買 index off-by-one**：接受 0..11，index 11 → entry 10 = Flag，界內
+- ❌ **1024-byte inventory**（`0x383028`）：零引用死資料
+- ❌ **KCS7_ENCRYPT**：`sub_23B8D0` 經 objdump 確認是 `usleep`，字串只是被當微秒數的指標
+
+#### 仍開放的洞（未能利用）
+- `sub_49251` 驗證 catalog offer 時**漏檢價格 offset 104 的負數**，
+  而 `sub_48DAA` 是 `if (price<=0 || price<=coins)` → 負價格會變加錢。
+  但 catalog 在伺服器端，實測 11 項價格全為正。**這 100% 是題目刻意留的洞，
+  代表可能有辦法讓 catalog 出現負價格 offer——這條線還沒解開。**
+
+#### 工具（scratchpad）
+`hc2.py`（並行 hashcash miner）、`client.py`（含 `login()` 處理 PoW + save 提示）、
+`fs3.py`/`fs4.py`（地圖掃描器）、`farm3.py`/`bot.py`（打怪 bot 雛形）
 
 ### aegis_asterism
 - **狀態**：未開始
