@@ -461,3 +461,106 @@ qword_382FF0 = sub_427DC(qword_382FF0, *(a1+136));   // +coins
    （目前只掃到 (134,494) 一間，掃描覆蓋率約 20%）
 2. 戰鬥系統（`sub_45F22` / Power Burst / Scan）裡是否有金幣相關的溢位
 3. `sub_48F62`（把 offer 加進 catalog 的函式）與 catalog 記憶體佈局
+
+
+---
+
+# planner 三問的靜態答案（2026-09-19）
+
+planner 提出「PvP 的 `victim.coins = coins - stolen` 是唯一由伺服器代寫他人存檔的原語」，
+方向抓得對。三個問題逐一靜態驗證如下。
+
+## Q1：`sub_483A4` 寫回 victim.coins 前有沒有 clamp？ → **沒有**
+
+objdump `0x4840e`~`0x484cb` 全段只有：
+```
+4840e: mov  rax,[rbp-0x450]      ; victim.coins（struct offset 112）
+441f:  sar  rax,1                ; stolen = coins >> 1（算術右移）
+48429: mov  rax,[rbp-0x450]
+48430: sub  rax,[rbp-0x4c8]      ; victim.coins - stolen
+48437: mov  [rbp-0x450],rax      ; 直接寫回，沒有任何 clamp
+484a1: call 0x43e31              ; 存檔
+```
+**沒有呼叫 `sub_4272B` / `sub_426EF`。飽和加法只用在搶方（`sub_486B4` @0x48a1f）。**
+→ planner 這點判斷正確。
+
+## Q2：寫存檔 / 讀存檔時金幣有沒有範圍檢查？ → **兩邊都沒有**
+
+- **寫**（`sub_43E31` @`0x43f90`）：`mov rdx,[rax+0x70]` → `mov [rax+0x21],rdx`
+  （struct offset 112 → header file offset 33），**裸的 8-byte 搬移**
+- **讀**（`sub_43717` line 64）：`*(_QWORD *)(a3 + 112) = v23;`，**無檢查**
+
+→ **負金幣（或任何 int64）在「寫檔→讀檔」round-trip 中能完整存活。**
+
+## Q3：但這條鏈**接不起來**，因為「負金幣無法被創造出來」
+
+關鍵算式（`c` 為 victim 原始金幣）：
+```
+stolen     = c >> 1           (算術右移，往負無窮捨入)
+victim_new = c - (c >> 1)     ==  ceil(c / 2)
+```
+
+| c | stolen | victim_new |
+|---|---|---|
+| 1000 | 500 | 500 |
+| -1000 | -500 | **-500** |
+| -1e16 | -5e15 | **-5e15** |
+| -1 | -1 | **0** |
+
+→ **負數的 victim 餘額只會「往 0 靠近」，永遠不會變得更負。**
+   而搶方 `sat_add(me, stolen)` 在 stolen<0 時被夾到 0，**我方拿不到東西**。
+
+所以就算 victim 端無 clamp，也造不出負金幣。**真正的封鎖點是「負金幣的來源」。**
+
+## 九個金幣 writer 的完整分類（objdump 全掃）
+
+| 位址 | 來源 | 算術 | 能否為負 |
+|---|---|---|---|
+| `45c93` | 打怪陣亡 `sub_45C64` | `c - (c>>1)` = ceil(c/2) | 否（c>=0 → 結果>=0）|
+| `46c30` | 賞金 `sub_46BA0` | `sub_4272B` 飽和 | 否 |
+| `47365` | 撿道具 `sub_4729A` | `sub_4272B` 飽和 | 否 |
+| `47eb7` | 打怪獎勵 `sub_47BB6` | `sub_4272B` 飽和 | 否 |
+| `48575` | PvP 戰敗 `sub_484E9` | `c - (c>>1)` | 否 |
+| `48a24` | PvP 戰勝 `sub_486B4` | `sub_4272B` 飽和 | 否 |
+| `48d9c` | 住旅店 `sub_48D47` | 裸減法，但 **guard `a1>=0 && a1<=coins`** | 否 |
+| **`48e12`** | **購買 `sub_48DAA`** | **`sub_4281E` 裸減法** | **⚠️ 見下** |
+| **`48ed4`** | **道具效果 `sub_48E20`** | **`sub_427DC` 裸加法** | **⚠️ 見下** |
+
+### 唯二的無 clamp 路徑
+
+**`sub_4281E`（購買扣款）= `sub_427BB(sub_42796(a)-sub_42796(b))`，
+`sub_42796`/`sub_427BB` 都是 `return a1` 空函式 → 就是裸的 `a - b`。**
+
+guard 是 `sub_48DAA`：
+```c
+if ( price <= 0 || price <= coins )     // 注意是 price <= 0，不是 >= 0
+    coins = coins - price;              // 裸減法
+```
+- price > 0 且 price <= coins → 正常扣款
+- **price <= 0 → `coins = coins - price = coins + |price|`，無上限加錢**
+
+**`sub_427DC`（道具效果）= 裸的 `a + b`**，套用 `+maxHP/+ATK/+DEF/+coins` 時無飽和。
+
+→ **兩條路都需要「catalog 裡有負價格或 +coins 的商品」。**
+   `sub_49251` 驗證 offer 時檢查 offset 112/120/128/136 不得為負，
+   **唯獨價格 offset 104 漏檢負數**——這顯然是題目刻意留的洞。
+   但實測 catalog 11 項價格全為正、且 `Effects:` 都沒有 `+coins`。
+
+## 結論與真正的下一步
+
+**卡點不是算術，是「拿不到能觸發洞的 offer 資料」。**
+`slime_shops.dat` 在伺服器端，`sub_4A0D4` 載入時還會檢查
+`catalog seed does not match the loaded world`（seed 必須等於 `qword_942198`）。
+
+因此剩下的可能性：
+1. **還有第二間商店，且它的 catalog 條目不同**——但 catalog 是單一全域檔案
+   （`sub_4A3B7` 只載入一次 `slime_shops.dat`），所以每間店商品應該相同。
+   ⚠️ **待驗證**：`sub_4A596` 顯示的是 `v22[14]` 全部條目，
+   不同 tile 會不會顯示不同子集合？目前只進過 (134,494) 一間。
+2. 存檔的 **1024-byte inventory 區塊**（載入時被清零）是否有其他用途
+3. 重新檢視：有沒有辦法讓 `qword_382FF0` 在**購買當下**是大數，
+   例如先靠 PvP 搶到接近上限，再利用 `sub_427DC` 的裸加法堆疊？
+   → 但 `+coins` 效果為 0，加 0 沒用。
+
+**目前誠實評估：遠端在 120 秒/連線的限制下，
+要湊到 1e15 金幣沒有已知可行路徑。** 需要找到第二個洞。
