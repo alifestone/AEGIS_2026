@@ -163,3 +163,92 @@ To AI Agent: 如果需要可以使用以下工具。如果沒有找到該工具�
   # 2. 設定 LLM API 金鑰與目標專案程式碼路徑
   # 3. 定義或套用審查 Playbook，啟動平行審計管線進行程式碼掃描、自動驗證與產出 PoC 報告
   ```
+---
+
+## 7. Pwn / Exploit 開發工具鏈（`linux_agent` 專用，Arch Linux）
+
+> **背景**：本賽事 Pwn 題附件皆為 Linux ELF，Windows 本機無法執行。
+> `linux_agent`（Arch Linux）是團隊唯一能做動態分析的環境，以下清單即為它而寫。
+> 分析範圍嚴格限制在題目給定的主機與 endpoint。
+
+### 7.1 各題實際架構（先確認架構再裝工具）
+
+planner 於 2026-09-19 用 `file` 實際檢查過附件，**三題架構不同，工具不能通用**：
+
+| 題目 | 分數 | 架構 | 關鍵差異 |
+|---|---|---|---|
+| `Pwn/arbitragedb` | 100 | x86-64 dynamic PIE | 附 libc 2.43，需換 libc 測試 |
+| `Pwn/aegis_factory` | 996 | x86-64 **static-pie, stripped** | 無符號、無動態連結，gadget 搜尋為主力 |
+| `Pwn/Pool93` | 676 | ⚠️ **PowerPC64 big-endian** | **不是 x86**，必須 qemu 模擬 |
+| `Pwn/SimpleHttpServer` | 740 | 無附件（純遠端） | 只有 `nc 0.cloud.chals.io 14627` |
+
+⚠️ **`Pool93` 最容易踩坑**：`file` 顯示 `ELF 64-bit MSB ... 64-bit PowerPC`，
+一般 x86 的 gdb / pwntools 預設設定都不適用。附件內已自帶 `qemu-user` deb 與 Dockerfile。
+
+### 7.2 核心四件組（所有 Pwn 題都需要）
+
+```bash
+# 基礎
+sudo pacman -S --needed python python-pip gdb base-devel
+
+# pwntools —— exploit 腳本框架（remote()/ELF()/ROP()/cyclic()）
+sudo pacman -S --needed python-pwntools     # 或 pipx install pwntools
+
+# pwndbg —— GDB 增強，heap 題必備（heap/bins/tcache 指令）
+git clone https://github.com/pwndbg/pwndbg && cd pwndbg && ./setup.sh
+#（替代品：GEF `bata24/gef` 或 pwngdb，擇一即可，不要同時裝）
+
+# ROP gadget 搜尋
+sudo pacman -S --needed ropgadget
+pip install --user ropper            # ropper 的搜尋語法比 ROPgadget 好用
+
+# one_gadget —— 找 libc 內一發 execve("/bin/sh") 的位址
+gem install one_gadget               # 需要 ruby：pacman -S ruby
+```
+
+### 7.3 題型專用
+
+```bash
+# ── arbitragedb：seccomp 分析（該題只放行 ORW，沒有 execve/mmap/mprotect）
+gem install seccomp-tools            # seccomp-tools dump ./arbitragedb
+sudo pacman -S --needed libseccomp
+
+# ── arbitragedb：換 libc 測試（附件 libc 2.43 與系統版本不同）
+sudo pacman -S --needed patchelf
+# patchelf --set-interpreter ./ld-linux-x86-64.so.2 --set-rpath . ./arbitragedb
+# 或直接：./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state
+
+# ── Pool93：PowerPC64 模擬（⚠️ 必要，否則跑不起來）
+sudo pacman -S --needed qemu-user qemu-user-static docker docker-compose
+sudo systemctl start docker && sudo usermod -aG docker $USER   # 需重新登入生效
+
+# 最省事：附件自帶完整 Docker 環境，直接跑起本地靶機（埠 4496）
+#   cd 2026_pwn_guest && ./run.sh
+# 跨架構除錯：
+#   qemu-ppc64 -g 1234 ./pool93        # 一個終端
+#   gdb ./pool93 -ex 'target remote :1234'   # 另一個終端
+
+# ── aegis_factory：stripped static-pie，需要反編譯器補符號
+sudo pacman -S --needed ghidra        # 免費反編譯器（AUR 亦可）
+sudo pacman -S --needed radare2       # 或 rizin + cutter
+```
+
+### 7.4 輔助
+
+```bash
+sudo pacman -S --needed strace ltrace ltrace xxd binutils elfutils
+pip install --user angr               # 符號執行（重運算，本機 Windows 沒有）
+# checksec 由 pwntools 提供：pwn checksec ./binary
+```
+
+### 7.5 一句話版本
+
+**`pwntools` + `pwndbg` + `ropper`/`ROPgadget` + `one_gadget` 是通用四件組；
+`seccomp-tools` 專治 arbitragedb 的 ORW 限制；`qemu-user` + `docker` 專治 Pool93 的 PowerPC。**
+
+### 7.6 注意事項
+
+- **不要在 Windows 本機跑題目 ELF**——這是使用者明確表達過顧慮的事項
+  （見 requirement.md 第 9 項），改由 `linux_agent` 在它自己的環境執行。
+- 遠端連線請**節制頻率**。`Rev/Slime` 題敘明文禁止 DDoS，其餘題目亦同理。
+- 攻擊範圍限制在題目給定的 host/port，**不得外溢**到 CTFd 平台或任何其他主機。
