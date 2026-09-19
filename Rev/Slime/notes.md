@@ -195,3 +195,120 @@ return addr  rbp+0x8    需要 idx 4099  ← 超出
 - 起始：(500,500) Central Town、Coins 0、HP 10/10、ATK/DEF 2/1、Camp kits 3
 - 地圖圖例確認有 **`$ hidden shop`**，且看到 `P`（別的玩家）在 (520,500) 附近
 - 移動選單：1.North 2.South 3.West 4.East 0.Stay
+
+
+---
+
+# rev session 第二輪：42-byte header 是完整的「戰鬥/經濟」注入面（2026-09-19）
+
+## 🎯 最重要的結論：header 四個欄位全部無驗證，且全部是關鍵屬性
+
+`sub_43717` 讀 42-byte header（file offset 0..41）後直接寫進 player struct，
+**除了 name_len 以外沒有任何範圍檢查**：
+
+| file off | size | → struct off | 意義 | 驗證 |
+|---|---|---|---|---|
+| 0  | 9 | +0 | player id | 必須等於檔名 |
+| 9  | 8 | **+80** | **max HP**（load 時 `*(a3+88)=*(a3+80)` 同步成 cur HP）| **無** |
+| 17 | 8 | **+96** | **ATK** | **無** |
+| 25 | 8 | **+104** | **DEF** | **無** |
+| 33 | 8 | **+112** | **金幣餘額** | **無** |
+| 41 | 1 | name_len | `<= 0x2F` |
+
+（offset 對應驗證：`unk_382F80` 是 player struct，
+`qword_382FD0`=80 maxHP、`qword_382FD8`=88 curHP、`qword_382FE0`=96 ATK、
+`qword_382FE8`=104 DEF、`qword_382FF0`=112 coins。）
+
+前一輪說「欄位上限擋住改金幣」是看錯欄位：有 `<=0x1FFFFFFFFFFFFF` 上限的
+offset 136/144/152 其實是 **steps / slime wins / PvP wins**（由 `sub_45850` 的
+`Journey: %lld steps | %lld slime wins | %lld PvP wins` 確認），與金幣無關。
+
+## 🎯 PvP「零血秒殺」：sub_480D4 的迴圈前置條件
+
+```c
+while ( qword_382FD8 > 0 && (__int64)a1[9] > 0 )   // a1[9] = 對手 HP
+...
+if ( qword_382FD8 <= 0 ) return -1; else return 1;   // 迴圈沒跑 → 直接 return 1
+```
+
+**對手 HP <= 0 時迴圈一次都不跑，直接判我方勝利。**
+
+objdump `0x4891e`~`0x489d6` 確認 `sub_480D4` 收到的是 `rbp-0x80b0`（`v24`），
+那是一塊 **152 bytes** 的戰鬥快照（不是題目 struct 本身），內容：
+
+- `v24[0..63]`  對手名字（snprintf 64 bytes）
+- `v24+0x40`(idx 8)  ← 對手 struct `+0x50` = **max HP**
+- `v24+0x48`(idx 9)  ← 同一個值 = **cur HP**（戰鬥用的就是這個）
+- `v24+0x50`(idx10)  ← 對手 `+0x60` = **ATK**
+- `v24+0x58`(idx11)  ← 對手 `+0x68` = **DEF**
+
+→ 對手的 HP/ATK/DEF 全部來自對手存檔的 **42-byte header**，全部無驗證。
+   只要對手 header 的 HP 欄位 <= 0，PvP 就是**零回合勝利**。
+
+## 金幣轉移的實際算式（objdump 0x4840e~0x484cb 確認）
+
+```
+sub_483A4(victim_entry, &out):
+    sub_43717(...)           // 從磁碟重新載入 victim 存檔到 [rbp-0x4c0]
+    coins = [rbp-0x450]      // 0x4c0-0x450 = 0x70 = 112 → 確認是 offset 112
+    stolen = coins / 2       // 算術右移（sar），負數也會被除
+    victim.coins = coins - stolen
+    victim.x = victim.y = 500 (0x1f4)
+    sub_43E31(victim)        // 寫回 victim 存檔
+    *out = stolen
+然後 sub_486B4: qword_382FF0 = sub_4272B(qword_382FF0, stolen)   // 飽和加法
+```
+
+`sub_4272B` / `sub_426EF` 把金幣**飽和夾在 [0, 0x1FFFFFFFFFFFFF]**，
+所有遊戲內加錢路徑（打怪 `sub_47BB6`、賞金 `sub_46BA0`、撿道具 `sub_4729A`、
+PvP `sub_486B4`）都走飽和加法 → **遊戲內金幣上限就是 0x1FFFFFFFFFFFFF = 9007199254740991**。
+
+## 商店：負價格是設計上的洞，但價格是伺服器資料
+
+`sub_49251`（catalog 範圍驗證）檢查 offer 的 offset 112/120/128/136 是否 `< 0`
+（那些是道具效果），**唯獨價格 offset 104 只檢查非 0，不檢查負數**。
+而 `sub_48DAA`：
+
+```c
+if ( a1 <= 0 || a1 <= qword_382FF0 )        // a1 = 價格
+    qword_382FF0 = sub_4281E(qword_382FF0, a1);   // 減去 → 負價格等於加錢
+```
+
+→ 負價格商品可以無限加錢。但 catalog 來自伺服器端 `slime_shops.dat`，
+**我們無法自己寫 catalog**，所以這是「觀察到的設計弱點」而非可用路徑，
+除非商店裡真的有負價格商品（要進商店才知道）。
+
+## ❌ KCS7_ENCRYPT 是誘餌，這條線可以結案
+
+`sub_41FCB` 結尾的 `return sub_23B8D0("KCS7_ENCRYPT")`：
+objdump `0x23b8d0` 顯示該函式是 `imul rax,rax,0x431bde83; shr rax,0x32`（除以 1e6）
++ `imul rdi,rdi,0x3e8`（餘數 ×1000）組出 timespec 後 `call nanosleep`
+→ **`sub_23B8D0` 就是 `usleep`**（其他呼叫點也都是 `usleep(200000)` / `usleep(20000)`）。
+
+`"KCS7_ENCRYPT"` 只是被當成微秒數的**字串指標**，與 PKCS7 / 加密無關。
+**誘餌，結案，不要再追。**
+
+另外更正：`sub_41FCB` **並非「從未被呼叫」**，`sub_42ADD`（選單輸入解析）
+在輸入非法時就會呼叫它 → 就是故意讓亂打選單的人把那 90 條 prompt injection 印出來。
+
+## 地圖掃描結果（負面結果，但有價值）
+
+寫了 serpentine 掃描器（scratchpad `fs2.py`），單一連線內用「移動 21 格 → 看地圖」
+掃過 **349 個 21×21 視窗 ≈ 154,000 tiles（約全圖 15%）**，涵蓋
+x∈[510,990]、y∈[510,804] 這個區塊，**一個 `$` hidden shop 都沒找到**。
+
+→ shop tile 在共用地圖上**極度稀有**（或集中在未掃區域）。
+   盲掃全圖 1,000,000 tiles 不划算（PoW 難度還會隨連線頻率升到 28 bits）。
+
+## ⚠️ 遠端的硬限制（planner 問的問題的答案）
+
+**我們無法讓伺服器寫入一個自選的 header 值。** 原因：
+
+- 玩家身分 = `SHA256(正規化來源 IP)[:8]` 的 hex，存檔檔名就是它 → 一 IP 一檔、檔名不可選
+- 所有寫存檔的路徑（`sub_43E31`）都是從**當前 struct** 序列化出去，
+  而 struct 裡的 HP/ATK/coins 都被遊戲邏輯的飽和運算夾住
+- 因此「把金幣改成任意值」需要能**直接寫檔**（本機 SAVE_DIR），遠端做不到
+
+→ 除非找到「讓伺服器把受控值寫進 header」的第三條路，
+   否則遠端金幣上限就是 `0x1FFFFFFFFFFFFF`。
+   **下一步關鍵問題：商店裡的 flag 商品到底要多少錢？** 必須先進到商店才知道。

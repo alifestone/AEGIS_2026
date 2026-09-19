@@ -33,7 +33,7 @@ cp <repo>/Misc/False_Continuity/tools/*.py .
 python glyphs6.py          # -> fc_g6.pkl
 
 # 3. OCR（約 2 分鐘）
-python ocr5.py             # -> fc_ocr.pkl  ⛔ 方向會錯 46%，改跑 orient2.py
+python ocr5.py             # -> fc_ocr_LEGACY_WRONG_ORIENTATION.pkl  ⛔ 方向會錯 46%，改跑 orient2.py
 ```
 
 ## 檔案說明

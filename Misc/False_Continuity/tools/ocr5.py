@@ -77,5 +77,7 @@ if __name__=="__main__":
         txt=' | '.join(''.join(r['ch'] for r in L) for L in lines)
         fnt=''.join(r['ch'] for L in lines for r in L if r['faint'])
         print(f"{k:3d} {f[3:]} sc={sc:.2f} faint='{fnt}'", flush=True)
-    pickle.dump(res,open('fc_ocr.pkl','wb'))
+    # ⛔ 不再寫成 fc_ocr.pkl：那個名字已被標記作廢（方向錯 46%），
+    #    若沿用同名會把 DEPRECATED 防呆蓋掉，讓後人以為這是可用的結果。
+    pickle.dump(res,open('fc_ocr_LEGACY_WRONG_ORIENTATION.pkl','wb'))
     print("SAVED")
