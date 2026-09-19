@@ -721,11 +721,26 @@ pwntools 已裝在 scratchpad venv。libc 確認 = Ubuntu GLIBC 2.43-2ubuntu2.3�
     固定 offset `libc_base = leak - 0x212ac8`（低 12 bits 恆為 `0xac8`，跨 run 穩定）
   - 二次讀同一筆 → **heap 指標**（mangled tcache fd，`heap_base = (mangled<<12)`）+ tcache key
   - 用 /proc/pid/maps 交叉驗證：leak 落在 libc rw 段，確認是 libc。
-- 🔴 **修正 notes/status 的溢出模型（原本寫錯成 max）**：
-  `sub_4604` 反組譯實測：`copylen = min(C, remaining)`，且 `C<=0x80`（caller 檢查）。
-  memcpy(p=malloc(B+0x18), payload, copylen) → **可控 heap overflow 上限僅約 0x68 bytes**
-  （B=0→alloc=0x18，C=0x80→溢出 0x68）。**不是** 0x1fe8。
-  pc_agent 看到的 "corrupted top size" = 溢出蓋到 top chunk，之後 malloc(0x520) 爆掉。
+- 🔴🔴 **重大修正：IMPORT 參數模型（notes.md §4/§14/§15 與 stage1.py 全錯，gen_poc 也錯）**。
+  gdb 實測 `sub_4988` 解析：
+  - **A** = 第一個 varint（`sub_44bb`），會前進 off。**唯一的 `<=0x80` 檢查是檢查 A**（0x4c43），
+    A 之後**沒被用到**（不傳進 sub_4604）。設 A=1 即可。
+  - 接著讀「**同一個** varint V」兩次（sub_4566 **不前進 off**，第二次 sub_44bb 才前進）：
+    - `B = sub_4566(V)` = 單 byte 時 = V，多 byte 時 = `firstbyte & 0x7f`（∈0..0x7f）→ 控制 `alloc=B+0x18`
+    - `C = 完整 LEB128(V)`（**無上限**）
+  - `copylen = min(C, remaining)`，`remaining = size - off`（size≤0x4000 → 最大 ~0x3fec）
+  - ⇒ **UAF 閘門 B≠C 只在 V 是多 byte 時成立**（單 byte V ⇒ B==C）。
+  - ⇒ **溢出是大且精確可控的**：多 byte V 給小 B（小 alloc）＋大 C ⇒ memcpy 可寫
+    **~0x3fe0 bytes 全可控內容**進 `malloc(B+0x18)` 的小 chunk。長度=`min(C,remaining)` 精確可調
+    （C 低 7 bits 必等於 B，故 C 以 0x80 為步進）。**不是 0x68、也不是 0x1fe8。**
+  - pc_agent 的 "corrupted top size" = 新鮮 heap 上 p 緊鄰 top，大溢出蓋到 top → 之後 malloc 爆。
+- **exploit 路線改為（free-safe，避開「寫入目標一定被 free」的死結）**：
+  每個可寫 chunk（p/q/raw）寫完都會被 `free`，所以**不能**用 tcache poison 直接寫 libc
+  （free(libc_addr) 會 abort；_IO_list_all 周邊在 libc 是全 0，size 欄=0 → free 檢查失敗）。
+  改用**large bin attack**：q=malloc(0x520)→0x530 chunk 是 largebin，free 後進 unsorted→largebin；
+  用大溢出改 q 的 `bk_nextsize` → largebin unlink 時把 `&fake_FILE`(heap，位址已知) 寫進 `_IO_list_all`
+  （**不需 free 目標**）→ exit `_IO_flush_all` → House of Apple 2（vtable=`_IO_wfile_jumps`）
+  → `setcontext+0x3d`(rdx 版) → SROP ORW 讀 flag。largebin attack 在 glibc 2.43 的檢查點需 gdb 確認。
 - 分配順序（trace 實測）：`p=malloc(B+0x18)` →〔溢出發生〕→（B!=C）`q=malloc(0x520)`
   →`aux=malloc(0x80)`→ `free(q)`→ 末尾 `free(p)`→`free(raw)`。aux 不被 free（持久）。
 - **路線**：libc+heap leak 已足夠（不需 PIE）→ tcache poison 取得 ≤0x80 bytes 任意寫
