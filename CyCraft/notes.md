@@ -110,3 +110,44 @@ GET /api/result/<job_id>
 | # | 題目 | payload 摘要 | attack_succeeded | 備註 |
 |---|---|---|---|---|
 | - | - | 尚未提交（等 token） | - | - |
+
+---
+
+## 2026-09-19 — extraction-2 / injection-2 偵察（**已暫停，quota 消耗 0**）
+
+planner 一度指派接手平台新上架的 extraction-2 / injection-2，隨即取消（使用者要集中 pwn + slime）。
+以下是取消前查到的事實，**恢復時可直接沿用，不必重查**。
+
+### ✅ Team Token 仍然有效（2026-09-19 實測）
+
+```
+aegis-1000b5c9-4d58-4cfa-a2b9-a8ca10d83dca
+```
+
+用**零成本驗證法**（送空字串當 payload）對 q1 兩個 endpoint 實測：
+
+```bash
+curl -X POST "https://<host>.chals.io/api/submit" -H "Content-Type: application/json" \
+     -d '{"user_input":"","team_token":"aegis-1000b5c9-..."}'
+# -> HTTP 400 {"error":"Input must be 1..2000 characters"}   = token 有效（過 auth，卡長度檢查）
+# -> HTTP 401 {"code":"INVALID_TEAM_TOKEN"}                  = token 無效
+```
+
+**這兩次探測沒有消耗 quota**（400/401 都在評分 queue 之前）。
+
+### ❌ 新題的 endpoint 還不知道，且**猜不到**
+
+- CTFd（`https://aegis2026.ctfd.io/challenges`）**需要登入**才看得到題目，
+  本 agent 無法取得題敘／分數／endpoint／附件。
+- 試過假設新題是舊 host 換 suffix（`-q2` / `-q3`）→ **全部連不上（HTTP 000，DNS 不存在）**：
+  ```
+  aegis2026-ai-7577bf11-...-q2.chals.io   -> 000
+  aegis2026-ai-f2ed0071-...-q2.chals.io   -> 000
+  ```
+  → 新題是**獨立的 UUID host**，無法從舊 URL 推導，**一定要從 CTFd 題目頁面拿**。
+
+### 恢復時的第一步
+
+請使用者到 CTFd 提供 extraction-2 / injection-2 的 **endpoint URL 與題敘全文**
+（寫進 requirement.md），拿到才能開工。其餘平台知識（API 形狀、judge 特性、
+繞過框架）見本檔上方 extraction-1 / injection-1 的段落，可直接複用。
