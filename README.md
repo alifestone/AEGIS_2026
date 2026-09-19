@@ -15,7 +15,7 @@
 | 4 | nursery melody | Crypto | 100 | 39 | 未解 | [Crypto/nursery_melody](Crypto/nursery_melody/) |
 | 5 | baby | Crypto | 100 | 48 | ✅ 已解 | [Crypto/baby](Crypto/baby/) |
 | 6 | extraction-1 | CyCraft | 100 | 55 | ✅ 已解 | [CyCraft/extraction-1](CyCraft/extraction-1/) |
-| 7 | extraction-2 | CyCraft | 100 | 53 | 未解 | [CyCraft/extraction-2](CyCraft/extraction-2/) |
+| 7 | extraction-2 | CyCraft | 100 | 53 | ✅ 已解 | [CyCraft/extraction-2](CyCraft/extraction-2/) |
 | 8 | injection-1 | CyCraft | 100 | 53 | ✅ 已解 | [CyCraft/injection-1](CyCraft/injection-1/) |
 | 9 | injection-2 | CyCraft | 100 | 52 | 未解 | [CyCraft/injection-2](CyCraft/injection-2/) |
 | 10 | 5P | Misc | 676 | 19 | 未解 | [Misc/5P](Misc/5P/) |
