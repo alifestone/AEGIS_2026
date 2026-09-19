@@ -695,3 +695,18 @@ setcontext 觸發時 rdx 實際落點。已確認一個 freed 大 chunk 會緊�
 `_IO_list_all=0x213480 _IO_2_1_stdout_=0x213580 _IO_wfile_jumps=0x211228 _IO_file_jumps=0x211030`
 `setcontext=0x4be80(+0x3d=0x4bebd) environ=0x219de8 main_arena=0x212a68`
 gadget（libc）：`pop rdi=0x11bc7a pop rsi=0x5c2e7 pop rax=0xe5dc7 syscall=0xa0be6 ret=0x289fe`；**無 pop rdx**。
+
+### 17.4 heap 動態（grinding 觀察，重要）
+- **coalescing**：單一 UAF import 的 free 順序是 q→p→raw，三者位址連續 ⇒ **會合併成一個大 free chunk**
+  （size = chunk(raw)+chunk(p)+0x530，可由 raw bodylen 與 C&0x7f 控制）。`aux`(0x90，不被 free)
+  夾在 q 與 top 之間，擋住往 top 合併，也當作跨 import 的 guard。
+- **q-recycling**：每個 overflow(=UAF) import 都會 `malloc(0x520)`，它會把 unsorted/largebin 裡
+  任何 ≥0x530 的 chunk 吃掉（exact 0x530 直接取，較大則 split）。⇒ **大 chunk 不會自己留在 bin 裡**，
+  會被下一個 q 消耗。純 largebin attack 需要用 guard 分配＋精確控制 merged size 才能讓 C1 留在 largebin。
+- ⇒ overflow 只能在 B!=C 時發生（B==C 不溢出），而 B!=C 一定伴隨 q/aux 分配。無法只溢出不產生 q。
+- **結論**：可行但屬於「對抗程式自身 recycling 的高難度 grooming」。setarch -R 下 heap=0x55555743c000。
+
+**下一步（給接手/續作）**：用 aux guard 隔出兩個不同 size 的 merged largebin chunk（都 >0x530 會被 q 吃，
+需讓其中一個 <0x530 或用 split 殘塊），或改用 **tcache stashing unlink**（smallbin，避開 q 的 0x520）
+或 **unsorted bin attack + House of Orange**（寫 main_arena 位址進 _IO_list_all，偽 FILE 落在 arena）。
+三條都要對 glibc 2.43 檢查點做 gdb 驗證。leak 與參數模型已確定（§17.1-17.2），可直接沿用。
