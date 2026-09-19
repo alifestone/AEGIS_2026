@@ -685,7 +685,32 @@ Travel_2 同樣**未提交**。恢復時可從上面「下一步」直接接手�
 ## Pwn
 
 ### arbitragedb
-- **狀態**：進行中（靜態分析完成，**已定位主漏洞**）
+- **狀態**：進行中（**Arch Linux 動態驗證中** — 兩個 leak 已實測成立，正在開發 tcache poison → FSOP）
+
+#### 🟢 2026-09-19 linux_agent 動態驗證（實跑題目 binary，ADB_NO_SECCOMP=1）
+
+**環境**：Arch Linux x86-64，`./ld-linux-x86-64.so.2 --library-path . ./arbitragedb formal_state`。
+pwntools 已裝在 scratchpad venv。libc 確認 = Ubuntu GLIBC 2.43-2ubuntu2.3（附件那份）。
+
+- ✅ **Q1 兩個 leak 一次連線同時拿到（免溢出）**：
+  - IMPORT（B!=C，varint2 多 byte 取低 7 bits）→ `SELECT * FROM sys_imports;`
+  - t1 blob qword0 = **libc 指標**（unsorted-bin fd/bk 指向 main_arena），
+    固定 offset `libc_base = leak - 0x212ac8`（低 12 bits 恆為 `0xac8`，跨 run 穩定）
+  - 二次讀同一筆 → **heap 指標**（mangled tcache fd，`heap_base = (mangled<<12)`）+ tcache key
+  - 用 /proc/pid/maps 交叉驗證：leak 落在 libc rw 段，確認是 libc。
+- 🔴 **修正 notes/status 的溢出模型（原本寫錯成 max）**：
+  `sub_4604` 反組譯實測：`copylen = min(C, remaining)`，且 `C<=0x80`（caller 檢查）。
+  memcpy(p=malloc(B+0x18), payload, copylen) → **可控 heap overflow 上限僅約 0x68 bytes**
+  （B=0→alloc=0x18，C=0x80→溢出 0x68）。**不是** 0x1fe8。
+  pc_agent 看到的 "corrupted top size" = 溢出蓋到 top chunk，之後 malloc(0x520) 爆掉。
+- 分配順序（trace 實測）：`p=malloc(B+0x18)` →〔溢出發生〕→（B!=C）`q=malloc(0x520)`
+  →`aux=malloc(0x80)`→ `free(q)`→ 末尾 `free(p)`→`free(raw)`。aux 不被 free（持久）。
+- **路線**：libc+heap leak 已足夠（不需 PIE）→ tcache poison 取得 ≤0x80 bytes 任意寫
+  → House of Apple 2（改 `_IO_list_all` → 偽 FILE，vtable=`_IO_wfile_jumps`）
+  → `setcontext+0x3d`(rdx 版) pivot → SROP ORW 讀 `/home/arbitragedb/flag`。
+- 攻擊目標僅 `nc 0.cloud.chals.io 12983`（README 寫的 connection，與交接一致）。
+
+- **狀態(舊)**：進行中（靜態分析完成，**已定位主漏洞**）
 - **負責 session**：🔴 **2026-09-18 起改由 `linux_agent`（Arch Linux）全權接手**。
   使用者新開此 session 提供真正的 Linux 環境，**解除了「本機 WSL 是否可跑題目 binary」的僵局**
   （requirement.md 第 9 項）。`pwn_agent` 的靜態分析成果全數移交，見
