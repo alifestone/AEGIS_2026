@@ -647,3 +647,101 @@ if ( price <= 0 || price <= coins )     // 注意是 price <= 0，不是 >= 0
 2. **搶到囤積大量金幣的玩家**：算術上只要有人持有 >= 2e15 就夠。
    需要等伺服器人口恢復，或找到還沒被打的富豪。
 3. **worldgen / catalog seed** 這條線還沒看
+
+
+---
+
+# 🔑 新主線：高 danger 打怪的金幣獎勵上限就是 0x1FFFFFFFFFFFFF（2026-09-19）
+
+## 世界驗證 `sub_44BCC` 洩漏的關鍵常數
+
+`sub_44BCC` 在開場驗證 `slime_world.map` 與怪物表，其中：
+
+```c
+if ( v3 != 10 || v2 > dword_942190 )  return 0;
+```
+- **`v3` = 地圖上 sign bit（bit7）的數量 = shop 數量 → 必須剛好是 10**
+- `v2` = bit6（道具）數量，上限 8000
+- 同一 tile 不能同時有道具與商店；道具不能放在 town(terrain 5)
+
+**→ 全圖剛好 10 間商店。我找到 1 間 (134,494)。**
+
+⚠️ 但**找更多商店沒有意義**：`sub_4A596` 用的是單一全域 catalog `0x9431a0`
+（`sub_4A3B7` 開場只載入一次 `slime_shops.dat`），**位置只用來 gate「這裡有沒有店」
+（`sub_456be`），沒有任何依 tile 過濾商品的邏輯 → 10 間店商品完全相同。**
+（objdump 0x4a5ae~0x4a608 確認。）掃圖已停止。
+
+## 怪物表的欄位上限（`sub_44BCC` 第二個迴圈）
+
+怪物表 `unk_928740`，**505 筆 × 208 bytes**（`0x1F9`=505、`0xD0`=208），
+索引 = `tier*101 + danger`（`j/0x65 == entry[8]`、`j%0x65 == entry[9]`，`0x65`=101）。
+
+每筆 entry 的 qword 欄位與驗證：
+
+| qword | offset | 意義 | 驗證 |
+|---|---|---|---|
+| 7 | +56 | HP min | `> 0` |
+| 8 | +64 | HP max | `<= 0x1FFFFFFFFFFFFF` |
+| 9 | +72 | ATK min | `>= 0` |
+| 10 | +80 | ATK max | `<= 0x1FFFFFFFFFFFFF` |
+| 11 | +88 | DEF min | `>= 0` |
+| 12 | +96 | DEF max | `<= 0x1FFFFFFFFFFFFF` |
+| **13** | **+104** | **金幣獎勵 min** | `>= 0` |
+| **14** | **+112** | **金幣獎勵 max** | **`<= 0x1FFFFFFFFFFFFF`** |
+| 15 | +120 | recommended power | `0 < x <= 0x1FFFFFFFFFFFFF` |
+
+`sub_463E2` 取獎勵：`v30 = sub_428D3(*(v24+104), *(v24+112))` = 在 [coin_min, coin_max] 取隨機值
+→ **單場戰鬥的金幣獎勵上限就是 0x1FFFFFFFFFFFFF ≈ 9e15，遠大於 flag 的 1e15。**
+
+## danger 與 tier 的計算
+
+`sub_4540D`：`danger = min(100, 100 * dist((x,y),(500,500)) / 707)`
+`sub_46DEC`/`sub_47BB6`：`tier = min(4, danger/20)`
+
+→ **最高 danger 在地圖四角**：(0,0) dist=707 → danger **100**、tier **4**。
+
+## 實測：(0,0) = Royal Citadel，怪物是 Slime King
+
+```
+Hunting at (0, 0): Royal Citadel | danger 100/100
+Expected slime family: Slime King | recommended power 135000
+
+A Slime King appears!  HP 165218 | ATK 17650 | DEF 7358
+Trait: Royal: heals, dodges, and uses crushing attacks
+  Heal: 26% chance, restores 14% max HP
+  Heavy attack: 30% chance, 210% attack power
+  Evasion: 18% chance
+  Critical: 9% chance, 195% damage | flee success: 25%
+```
+
+我方新角色：HP 10 / ATK 2 / DEF 1 / Power 14 → **完全打不過**（recommended power 135000）。
+
+## 💡 完整的解題路線（bootstrap）
+
+關鍵在 **`sub_427DC` 是裸加法 + 商品可無限重複購買**：
+
+1. 在低 danger 區打小怪賺初始金幣
+2. 回 shop (134,494) **重複購買** stat 道具
+   （`Uncommon Royal Sigil` 1418 coins → +31 HP +4 ATK +4 DEF，**無上限累加**）
+3. 堆到能打贏高 danger 的怪 → 單場獎勵可達 ~9e15
+4. 湊到 1e15 → 回 shop 買第 11 項 `[Legendary] Flag`
+
+**數學上完全可行**，因為：
+- 道具效果用 `sub_427DC`（裸加法）→ HP/ATK/DEF 無上限
+- 商品購買後不從 catalog 移除 → 可無限買
+- 怪物獎勵上限 9e15 > flag 價 1e15
+
+## ⛔ 真正的工程障礙：120 秒/連線
+
+- `alarm(120)`（`sub_4264A` 的 `sub_235950(120)`）
+- PoW 要 15~60 秒（27~28 bits，難度隨連線頻率上升）
+- 移動有 `usleep(20000)`/格 → 從 (0,0) 走到 shop (134,494) 約 628 格 ≈ 12.6 秒
+- 戰鬥是**互動式多輪**，每輪一次 round-trip
+- 實測：從 (500,500) 走到 (0,0) 花掉 1348 步就用光了整個 session
+
+**位置與金幣都存在存檔裡、跨 session 保留**，所以可以分多次累積，
+但每次連線的有效操作時間只有約 60~100 秒，且 PoW 成本固定。
+
+**下一步**：寫一個高效率的 bootstrap 腳本——
+單一 session 內：確認位置 → 打低 danger 怪數場 → 累積金幣，
+金幣夠了再跑一趟 shop 買 stat，逐步爬 danger 階梯。
