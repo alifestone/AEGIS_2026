@@ -479,3 +479,38 @@ python3 Pwn/arbitragedb/stage1.py > s1.bin
 
 （`stage1.py` 的參數已修正：`varint2=0xff, varint3=0`，
  且查詢已改成有分號的 `SELECT * FROM sys_imports;`）
+
+---
+
+## 🟡 10.【恢復 CyCraft 時才需要】extraction-2 / injection-2 的 endpoint 與題敘
+
+- **時間**：2026-09-19
+- **題目**：`CyCraft/extraction-2`、`CyCraft/injection-2`（平台新上架）
+- **狀態**：🟡 **不急** —— 你已指示現在只跑 pwn 和 Slime，這兩題暫停中。
+  這條先記下來，等你說要恢復 CyCraft 時再處理，**現在不用回答**。
+
+### 需要你做什麼
+
+到 https://aegis2026.ctfd.io/challenges 把這兩題的 **endpoint URL 與題敘全文**貼給我們。
+
+### 為什麼非要你不可
+
+`cycraft_agent` 停手前已經試過自己找，確認**推導不出來**：
+
+- 假設「新題是舊 host 換個 suffix」→ 實測 `...-q2.chals.io` / `...-q3.chals.io`
+  全部 HTTP 000（DNS 不存在）→ 新題是**獨立的 UUID host**，無法從舊 URL 推導
+- CTFd 的 `/challenges` **需要登入**，agent 拿不到題敘、分數、endpoint、附件
+
+所以在你提供之前，這兩題完全開不了工。
+
+### 順帶回報：Team token 目前有效
+
+```
+aegis-1000b5c9-4d58-4cfa-a2b9-a8ca10d83dca
+```
+
+今天用零成本探測法實測過（送空字串 `user_input: ""`，回 400「Input must be 1..2000
+characters」代表通過 auth 只是卡長度檢查；回 401 才是 token 壞了）。
+**這個探測在評分 queue 之前，不消耗 quota。** 所以 token 這邊不用你處理。
+
+⚠️ 註：`cycraft_agent` 本次偵察**完全沒有送出任何一次評分，quota 消耗為 0**。
